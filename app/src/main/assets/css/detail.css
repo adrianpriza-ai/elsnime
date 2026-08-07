@@ -1,0 +1,25 @@
+/* detail.css — Anime detail: hero badges.
+   The YouTube-style hero, action row, description box and episode list
+   live in youtube.css (loaded after this file). */
+
+.badge-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	justify-content: center;
+	margin-bottom: 14px;
+}
+
+.badge {
+	font-size: 11px;
+	font-weight: 600;
+	padding: 4px 10px;
+	border-radius: var(--radius-sm);
+	background: var(--surface);
+	color: var(--text-secondary);
+}
+
+.badge.accent {
+	background: var(--accent-soft);
+	color: var(--accent-primary);
+}

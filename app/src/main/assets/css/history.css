@@ -1,0 +1,103 @@
+/* history.css — Watch history cards and progress bars */
+
+.history-card {
+	display: flex;
+	gap: 14px;
+	background: var(--surface);
+	border-radius: var(--radius-lg);
+	padding: 14px;
+	cursor: pointer;
+	transition: background var(--transition-fast);
+	margin-bottom: 12px;
+	position: relative;
+}
+
+.history-card:hover {
+	background: var(--surface-2);
+}
+
+.history-thumb {
+	width: 92px;
+	height: 130px;
+	object-fit: cover;
+	border-radius: var(--radius-md);
+	flex-shrink: 0;
+	background: var(--surface-2);
+}
+
+.history-info {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	min-width: 0;
+}
+
+.history-title {
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.history-ep {
+	font-size: 13px;
+	color: var(--text-secondary);
+	margin-top: 5px;
+	font-weight: 500;
+}
+
+.history-date {
+	font-size: 12px;
+	color: var(--text-muted);
+	font-weight: 500;
+}
+
+.progress-bar {
+	height: 4px;
+	background: rgba(255, 255, 255, 0.08);
+	border-radius: 2px;
+	margin-top: 10px;
+	overflow: hidden;
+}
+
+.progress-fill {
+	height: 100%;
+	background: var(--accent-primary);
+	border-radius: 2px;
+	transition: width var(--transition-normal);
+}
+
+.del-btn {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	width: 32px;
+	height: 32px;
+	background: var(--surface-2);
+	color: var(--text-muted);
+	cursor: pointer;
+	border-radius: var(--radius-sm);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+	z-index: 2;
+}
+
+.del-btn svg {
+	width: 15px;
+	height: 15px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.del-btn:hover {
+	background: var(--danger-bg);
+	color: var(--danger);
+	border-color: rgba(239, 68, 68, 0.4);
+}

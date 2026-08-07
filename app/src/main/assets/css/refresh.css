@@ -1,0 +1,44 @@
+/* refresh.css — Pull-to-refresh indicator pill */
+
+.refresh-indicator {
+	position: fixed;
+	top: 0;
+	left: 50%;
+	transform: translate(-50%, -110px);
+	z-index: 850;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	padding: 8px 14px;
+	color: var(--text-secondary);
+	font-size: 12px;
+	font-weight: 600;
+	box-shadow: var(--shadow);
+	opacity: 0;
+	transition: opacity 0.12s ease;
+	pointer-events: none;
+	will-change: transform;
+}
+
+.refresh-indicator svg {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.refresh-indicator.loading svg {
+	animation: refreshSpin 0.8s linear infinite;
+}
+
+@keyframes refreshSpin {
+	to {
+		transform: rotate(360deg);
+	}
+}

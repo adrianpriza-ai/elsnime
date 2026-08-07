@@ -1,0 +1,42 @@
+/* responsive.css — Reduced-motion and responsive media queries */
+
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
+
+/* Tablet+ */
+@media (min-width: 700px) {
+	.view {
+		padding: 28px 36px 40px;
+	}
+	.anime-grid {
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		gap: 16px;
+	}
+	.badge-row {
+		justify-content: flex-start;
+	}
+}
+
+@media (min-width: 1024px) {
+	.view {
+		padding: 32px 48px 40px;
+	}
+}
+
+/* Small phones: keep settings rows compact so labels stay beside controls */
+@media (max-width: 380px) {
+	.pill-option {
+		padding: 7px 10px;
+	}
+}

@@ -1,0 +1,40 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace = 'com.elsnime'
+    compileSdk = 35
+    defaultConfig {
+        applicationId = 'com.elsnime'
+        minSdk = 23
+        targetSdk = 35
+        versionCode = 1
+        versionName = '0.1-Kilo'
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    // Cronet bundles ~25 MB of native libs across 4 ABIs. Split them so each
+    // device/emulator only downloads the .so for its own ABI (~7 MB arm64).
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
+            universalApk false
+        }
+    }
+    bundle {
+        abi { enableSplit true } // Play Store path: per-ABI delivery (default, explicit)
+    }
+}
+
+dependencies {
+    // Cronet: the Chromium network stack. Its TLS ClientHello (JA3/JA4) is a
+    // genuine Chrome fingerprint, so Cloudflare's TLS checks on anidb.app pass —
+    // the Android equivalent of the curl-impersonate binaries ani-cli uses.
+    // cronet-api is the public API surface; cronet-embedded bundles the native
+    // implementation + libs (no Google Play services dependency).
+    implementation 'org.chromium.net:cronet-api:143.7445.0'
+    implementation 'org.chromium.net:cronet-embedded:143.7445.0'
+}

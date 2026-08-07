@@ -1,0 +1,637 @@
+/* youtube.css — YouTube-style watch & detail pages
+   Loaded after detail.css / player.css: overrides and extends them so the
+   anime info page and the player look like a YouTube watch page. */
+
+/* ---------- Detail hero: banner + overlaid title ---------- */
+
+.detail-hero {
+	position: relative;
+	overflow: hidden;
+	margin-bottom: 20px;
+	min-height: 150px;
+	background: linear-gradient(160deg, var(--surface-2), var(--surface));
+}
+
+#detail-banner {
+	width: 100%;
+	height: 260px;
+	object-fit: cover;
+	display: block;
+	background: var(--surface-2);
+}
+
+.detail-hero-scrim {
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		to top,
+		rgba(0, 0, 0, 0.88) 0%,
+		rgba(0, 0, 0, 0.45) 50%,
+		rgba(0, 0, 0, 0.05) 100%
+	);
+}
+
+.detail-hero-inner {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	display: flex;
+	align-items: flex-end;
+	gap: 16px;
+	padding: 18px 18px 16px;
+}
+
+.detail-hero-poster {
+	width: 88px;
+	flex-shrink: 0;
+	border-radius: 8px;
+	display: block;
+	background: var(--surface-2);
+}
+
+.detail-hero-meta {
+	flex: 1;
+	min-width: 0;
+	color: #fff;
+}
+
+.detail-title {
+	font-size: 22px;
+	font-weight: 800;
+	line-height: 1.2;
+	letter-spacing: -0.01em;
+}
+
+.detail-subtitle {
+	font-size: 13px;
+	font-weight: 500;
+	opacity: 0.85;
+	margin-top: 3px;
+}
+
+.detail-hero-meta .badge-row {
+	justify-content: flex-start;
+	margin: 10px 0 0;
+}
+
+.detail-hero-meta .badge {
+	background: rgba(255, 255, 255, 0.16);
+	color: #fff;
+}
+
+.detail-hero-meta .badge.accent {
+	background: var(--accent-primary);
+	color: #fff;
+}
+
+/* No banner available -> static card layout, text readable on surface */
+.detail-hero.no-banner .detail-hero-scrim {
+	display: none;
+}
+
+.detail-hero.no-banner .detail-hero-inner {
+	position: static;
+	padding: 20px 18px 22px;
+}
+
+.detail-hero.no-banner .detail-hero-meta {
+	color: var(--text-primary);
+}
+
+.detail-hero.no-banner .detail-subtitle {
+	opacity: 1;
+	color: var(--text-secondary);
+}
+
+.detail-hero.no-banner .badge {
+	background: var(--surface);
+	color: var(--text-secondary);
+}
+
+.detail-hero.no-banner .badge.accent {
+	background: var(--accent-soft);
+	color: var(--accent-primary);
+}
+
+/* ---------- Detail actions: Play + SUB/DUB pill toggle ---------- */
+
+.detail-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+	margin-bottom: 18px;
+}
+
+.yt-play-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 11px 22px;
+	border: 0;
+	border-radius: 999px;
+	background: var(--accent-primary);
+	color: #fff;
+	font-size: 15px;
+	font-weight: 700;
+	font-family: inherit;
+	cursor: pointer;
+	transition: transform var(--transition-fast);
+}
+
+.yt-play-btn svg {
+	width: 18px;
+	height: 18px;
+	fill: currentColor;
+}
+
+.yt-play-btn:active {
+	transform: scale(0.96);
+}
+
+.yt-play-btn:disabled {
+	opacity: 0.45;
+	cursor: default;
+	transform: none;
+}
+
+/* Segmented control restyled as YouTube filter chips */
+.seg-ctrl {
+	display: inline-flex;
+	background: transparent;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	padding: 3px;
+	gap: 2px;
+	margin-bottom: 0;
+}
+
+.seg-btn {
+	padding: 7px 18px;
+	border: 0;
+	background: transparent;
+	border-radius: 999px;
+	color: var(--text-secondary);
+	font-family: "Inter", sans-serif;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.seg-btn:hover {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}
+
+.seg-btn.active {
+	background: var(--text-primary);
+	color: var(--bg-primary);
+}
+
+.seg-ctrl--sm .seg-btn {
+	padding: 6px 13px;
+	font-size: 12px;
+}
+
+/* ---------- Description box (YouTube style) ---------- */
+
+/* Description is plain text — no card, no border. */
+.yt-desc-box {
+	padding: 2px 0 0;
+}
+
+#detail-desc {
+	font-size: 14px;
+	line-height: 1.65;
+	color: var(--text-secondary);
+	max-height: 84px;
+	overflow: hidden;
+	position: relative;
+}
+
+#detail-desc::after {
+	content: "";
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 34px;
+	background: linear-gradient(to bottom, transparent, var(--bg-primary));
+	pointer-events: none;
+}
+
+#detail-desc.expanded {
+	max-height: none;
+}
+
+#detail-desc.expanded::after {
+	display: none;
+}
+
+.yt-more-btn {
+	display: none;
+	margin: 10px auto 0;
+	padding: 7px 16px;
+	background: none;
+	border: 0;
+	border-radius: 999px;
+	color: var(--text-secondary);
+	font-size: 13px;
+	font-weight: 600;
+	font-family: inherit;
+	cursor: pointer;
+	transition: background var(--transition-fast);
+}
+
+.yt-more-btn:hover {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}
+
+/* ---------- Episode rows (YouTube "up next" suggestion style) ---------- */
+
+.upnext-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 10px;
+	margin-bottom: 10px;
+}
+
+.upnext-head .section-title {
+	margin-bottom: 0;
+}
+
+.upnext-label {
+	font-size: 15px;
+	font-weight: 700;
+	color: var(--text-primary);
+}
+
+.upnext-count {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+#eps-grid {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.yt-ep-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	padding: 8px;
+	border: 0;
+	border-radius: 10px;
+	background: none;
+	color: inherit;
+	font-family: "Inter", sans-serif;
+	text-align: left;
+	cursor: pointer;
+	position: relative;
+	transition: background var(--transition-fast);
+}
+
+.yt-ep-row:hover {
+	background: var(--bg-hover);
+}
+
+.yt-ep-row.active {
+	background: var(--bg-hover);
+}
+
+.yt-ep-thumb {
+	position: relative;
+	flex-shrink: 0;
+	width: 126px;
+	aspect-ratio: 16 / 9;
+	border-radius: 8px;
+	overflow: hidden;
+	background: var(--surface-2);
+}
+
+.yt-ep-thumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.yt-ep-chip {
+	position: absolute;
+	top: 6px;
+	left: 6px;
+	background: rgba(0, 0, 0, 0.72);
+	color: #fff;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.4px;
+	padding: 2px 7px;
+	border-radius: 4px;
+}
+
+.yt-ep-row.partial .yt-ep-chip {
+	background: var(--accent-primary);
+}
+
+.yt-ep-check {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.4);
+}
+
+.yt-ep-check svg {
+	width: 26px;
+	height: 26px;
+	fill: none;
+	stroke: var(--success);
+	stroke-width: 3;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.yt-ep-info {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.yt-ep-title {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--text-primary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.yt-ep-meta {
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--text-muted);
+}
+
+.yt-ep-row.watched .yt-ep-info {
+	opacity: 0.55;
+}
+
+.yt-ep-row.watched .yt-ep-thumb img {
+	filter: grayscale(0.4);
+}
+
+.upnext-tag {
+	position: absolute;
+	right: 10px;
+	top: 50%;
+	transform: translateY(-50%);
+	font-size: 10px;
+	font-weight: 800;
+	letter-spacing: 1px;
+	color: var(--text-muted);
+	background: var(--surface-2);
+	padding: 3px 8px;
+	border-radius: 4px;
+}
+
+/* ---------- Watch page (player) ---------- */
+
+#video-wrap {
+	width: 100%;
+	max-width: none;
+	position: relative;
+	aspect-ratio: 16 / 9;
+	background: #000;
+	border-radius: var(--radius-lg);
+	overflow: hidden;
+}
+
+#video-wrap video,
+#video-wrap .plyr,
+#video-wrap .plyr__video-wrapper {
+	width: 100%;
+	height: 100%;
+}
+
+#video-wrap video {
+	object-fit: contain;
+}
+
+#player-title {
+	font-size: 20px;
+	font-weight: 700;
+	line-height: 1.3;
+	margin: 16px 0 12px;
+	color: var(--text-primary);
+	letter-spacing: -0.01em;
+}
+
+#player-title span {
+	color: var(--text-muted);
+	font-size: 13px;
+	font-weight: 600;
+	margin-left: 10px;
+	padding: 0;
+	border: 0;
+}
+
+.watch-channel {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+	margin-bottom: 14px;
+}
+
+.watch-avatar {
+	width: 42px;
+	height: 42px;
+	flex-shrink: 0;
+	border-radius: 50%;
+	object-fit: cover;
+	background: var(--surface-2);
+}
+
+.watch-channel-meta {
+	flex: 1;
+	min-width: 0;
+}
+
+.watch-channel-name {
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--text-primary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.watch-channel-sub {
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--text-muted);
+	margin-top: 2px;
+}
+
+#player-actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+	margin: 0 0 20px;
+}
+
+/* Minimal, YouTube-style action buttons: transparent until hovered. */
+.action-btn {
+	padding: 9px 16px;
+	border: 0;
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-primary);
+	font-family: "Inter", sans-serif;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.action-btn svg {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.action-btn:hover {
+	background: var(--bg-hover);
+}
+
+.action-btn:disabled {
+	opacity: 0.35;
+	cursor: not-allowed;
+}
+
+.action-btn.icon-only {
+	padding: 9px;
+	border-radius: 50%;
+}
+
+.yt-actions-spacer {
+	flex: 1;
+}
+
+#player-error {
+	color: var(--danger);
+	font-size: 14px;
+	display: none;
+	margin: 0 0 16px;
+	background: var(--danger-bg);
+	padding: 12px 16px;
+	border-radius: var(--radius-md);
+	border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* ---------- Two-column layout (desktop) ---------- */
+
+@media (min-width: 900px) {
+	.detail-cols,
+	.watch-cols {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 360px;
+		gap: 28px;
+		align-items: start;
+	}
+
+	.detail-side,
+	.watch-side {
+		position: sticky;
+		top: 24px;
+		max-height: calc(100vh - 80px);
+		overflow-y: auto;
+		padding-right: 6px;
+		overscroll-behavior: contain;
+	}
+
+	.detail-side::-webkit-scrollbar,
+	.watch-side::-webkit-scrollbar {
+		width: 4px;
+	}
+}
+
+/* ---------- Mobile: full-bleed player, compact hero ---------- */
+
+@media (max-width: 699px) {
+	#video-wrap {
+		margin: 0 -16px;
+		border-radius: 0;
+	}
+
+	#detail-banner {
+		height: 170px;
+	}
+
+	.detail-hero-inner {
+		padding: 14px;
+		gap: 12px;
+	}
+
+	.detail-hero-poster {
+		width: 64px;
+	}
+
+	.detail-title {
+		font-size: 17px;
+	}
+
+	.detail-subtitle {
+		font-size: 12px;
+	}
+
+	.detail-hero-meta .badge-row {
+		margin-top: 8px;
+	}
+
+	.detail-hero-meta .badge {
+		padding: 3px 8px;
+		font-size: 10px;
+	}
+
+	.yt-ep-thumb {
+		width: 108px;
+	}
+
+	#player-title {
+		font-size: 18px;
+	}
+
+	.watch-avatar {
+		width: 36px;
+		height: 36px;
+	}
+
+	.upnext-tag {
+		display: none;
+	}
+}

@@ -1,0 +1,143 @@
+/* cards.css — Anime grid cards, static skeletons, continue-watching row */
+
+.anime-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+	gap: 14px;
+	contain: layout style paint;
+}
+
+.anime-card {
+	background: var(--surface);
+	border-radius: var(--radius-lg);
+	overflow: hidden;
+	cursor: pointer;
+	transition: background var(--transition-fast);
+}
+
+.anime-card:hover {
+	background: var(--surface-2);
+}
+
+.anime-card img {
+	width: 100%;
+	aspect-ratio: 2/3;
+	object-fit: cover;
+	display: block;
+	background: var(--surface-2);
+}
+
+.card-info {
+	padding: 12px 12px 14px;
+}
+
+.card-title {
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.45;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	color: var(--text-primary);
+}
+
+.card-score {
+	font-size: 12px;
+	color: var(--text-secondary);
+	margin-top: 6px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+/* Search-term highlight on card titles */
+.anime-card mark {
+	background: var(--accent-soft);
+	color: var(--accent-primary);
+	border-radius: 2px;
+	padding: 0 1px;
+}
+
+.card-score::before {
+	content: "";
+	display: inline-block;
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--accent-primary);
+}
+
+/* Static loading placeholder — no shimmer */
+.skeleton {
+	background: var(--surface-2);
+	border-radius: var(--radius-lg);
+}
+
+.continue-row {
+	display: flex;
+	gap: 12px;
+	overflow-x: auto;
+	padding-bottom: 8px;
+}
+
+.continue-card {
+	flex-shrink: 0;
+	width: 150px;
+	cursor: pointer;
+}
+
+.continue-thumb-wrap {
+	position: relative;
+	width: 150px;
+	height: 100px;
+	border-radius: var(--radius-md);
+	overflow: hidden;
+	background: var(--surface-2);
+}
+
+.continue-thumb {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.continue-progress {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 3px;
+	background: rgba(255, 255, 255, 0.15);
+}
+
+.continue-fill {
+	height: 100%;
+	background: var(--accent-primary);
+}
+
+.continue-info {
+	padding: 8px 2px 0;
+}
+
+.continue-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--text-primary);
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	line-height: 1.4;
+}
+
+.continue-ep {
+	font-size: 11px;
+	color: var(--text-muted);
+	margin-top: 3px;
+}
+
+.trending-grid {
+	margin-bottom: 28px;
+}

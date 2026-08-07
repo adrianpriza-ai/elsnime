@@ -1,0 +1,144 @@
+/* resolve.css — Title disambiguation picker (bottom sheet) */
+
+.resolve-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 900;
+	background: rgba(0, 0, 0, 0.6);
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+}
+
+/* Author display rules would otherwise override the hidden attribute (UA styles
+   never win over author styles), leaving the empty sheet visible on launch. */
+.resolve-overlay[hidden] {
+	display: none;
+}
+
+.resolve-sheet {
+	width: 100%;
+	max-width: 560px;
+	max-height: 78vh;
+	overflow-y: auto;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-bottom: none;
+	border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+	padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+	box-shadow: var(--shadow);
+}
+
+.resolve-head {
+	margin-bottom: 12px;
+}
+
+.resolve-kicker {
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 0.02em;
+	color: var(--accent-primary);
+}
+
+.resolve-subtitle {
+	margin-top: 4px;
+	font-size: 14px;
+	color: var(--text-secondary);
+	line-height: 1.4;
+}
+
+#resolve-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.resolve-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	text-align: left;
+	background: var(--surface-2);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	padding: 10px;
+	cursor: pointer;
+	color: var(--text-primary);
+	font-family: inherit;
+	transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.resolve-row:active {
+	transform: scale(0.985);
+}
+
+.resolve-row:hover {
+	background: var(--bg-hover);
+	border-color: var(--accent-primary);
+}
+
+.resolve-thumb {
+	width: 48px;
+	height: 68px;
+	object-fit: cover;
+	border-radius: var(--radius-sm);
+	background: var(--bg-elevated);
+	flex-shrink: 0;
+}
+
+.resolve-info {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+	flex: 1;
+}
+
+.resolve-name {
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1.3;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+
+.resolve-meta {
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.resolve-chevron {
+	width: 18px;
+	height: 18px;
+	flex-shrink: 0;
+	color: var(--text-muted);
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.resolve-cancel {
+	margin-top: 12px;
+	width: 100%;
+	background: transparent;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	padding: 12px;
+	color: var(--text-secondary);
+	font-size: 14px;
+	font-weight: 600;
+	font-family: inherit;
+	cursor: pointer;
+	transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.resolve-cancel:hover {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}

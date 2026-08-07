@@ -1,0 +1,79 @@
+/* base.css — Reset, design tokens, base html/body
+   Simple flat design: low radius, no glow, minimal borders. */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+
+:root {
+	/* Declare dark support so the Android WebView never algorithmically
+	   darkens the page and reports the system theme to prefers-color-scheme. */
+	color-scheme: dark;
+	--accent-h: 206;
+	--accent-s: 84%;
+	--accent-l: 67%;
+	--accent-primary: hsl(
+		var(--accent-h),
+		var(--accent-s),
+		var(--accent-l)
+	);
+	--accent-soft: hsla(
+		var(--accent-h),
+		var(--accent-s),
+		var(--accent-l),
+		0.14
+	);
+
+	/* YouTube-dark palette: neutral blacks/grays, no blue tint. */
+	--bg-primary: #0f0f0f;
+	--surface: #212121;
+	--surface-2: #272727;
+	--bg-hover: rgba(255, 255, 255, 0.1);
+	--border: rgba(255, 255, 255, 0.1);
+
+	--text-primary: #f1f1f1;
+	--text-secondary: #aaaaaa;
+	--text-muted: #717171;
+
+	--success: #2fbf71;
+	--danger: #ef4444;
+	--danger-bg: rgba(239, 68, 68, 0.1);
+
+	--radius-lg: 12px;
+	--radius-md: 8px;
+	--radius-sm: 4px;
+
+	--shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+	--transition-fast: 0.15s ease;
+	--transition-normal: 0.25s ease;
+
+	/* Legacy aliases used by inline styles in script.js */
+	--bg-elevated: var(--surface);
+	--bg-secondary: var(--surface-2);
+}
+
+html,
+body {
+	height: 100%;
+}
+
+body {
+	background: var(--bg-primary);
+	color: var(--text-primary);
+	font-family: "Inter", sans-serif;
+	-webkit-font-smoothing: antialiased;
+	overflow: hidden;
+}
+
+::selection {
+	background: var(--accent-soft);
+	color: var(--text-primary);
+}
+
+button {
+	font-family: inherit;
+}

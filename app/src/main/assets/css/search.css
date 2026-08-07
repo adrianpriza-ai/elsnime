@@ -1,0 +1,343 @@
+/* search.css — Search bar, section titles, genre chips */
+
+#search-bar-wrap {
+	max-width: 640px;
+	margin: 8px auto 20px;
+	position: relative;
+}
+
+/* Pill-shaped field with the search icon on the left and a clear (×) button
+   on the right that appears while the box has text. */
+#search-input {
+	width: 100%;
+	padding: 13px 46px 13px 46px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	color: var(--text-primary);
+	font-size: 16px;
+	font-family: "Inter", sans-serif;
+	outline: 0;
+	transition:
+		border-color var(--transition-fast),
+		background var(--transition-fast),
+		box-shadow var(--transition-fast);
+}
+
+#search-input:focus {
+	background: var(--surface-2);
+	border-color: var(--accent-primary);
+	box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+#search-input::placeholder {
+	color: var(--text-muted);
+}
+
+.search-icon {
+	position: absolute;
+	left: 16px;
+	top: 50%;
+	transform: translateY(-50%);
+	color: var(--text-muted);
+	pointer-events: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.search-icon svg {
+	width: 20px;
+	height: 20px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+}
+
+#search-clear {
+	position: absolute;
+	right: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 32px;
+	height: 32px;
+	display: none;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-secondary);
+	cursor: pointer;
+	-webkit-tap-highlight-color: transparent;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+#search-bar-wrap.has-text #search-clear {
+	display: inline-flex;
+}
+
+#search-clear:hover {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}
+
+#search-clear:active {
+	transform: translateY(-50%) scale(0.9);
+}
+
+#search-clear svg {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+}
+
+.section-title {
+	font-size: 15px;
+	font-weight: 700;
+	color: var(--text-primary);
+	margin-bottom: 14px;
+}
+
+.section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 14px;
+}
+
+.section-head .section-title {
+	margin-bottom: 0;
+}
+
+.see-all {
+	background: none;
+	border: 0;
+	padding: 8px 4px;
+	color: var(--accent-primary);
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.genre-chips {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+	justify-content: center;
+	align-items: center;
+	margin: 0 auto 22px;
+	max-width: 720px;
+}
+
+.chip {
+	padding: 8px 14px;
+	border-radius: var(--radius-md);
+	background: var(--surface);
+	color: var(--text-secondary);
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+	font-family: "Inter", sans-serif;
+	border: 0;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.chip:hover {
+	background: var(--surface-2);
+	color: var(--text-primary);
+}
+
+.chip.active {
+	background: var(--accent-primary);
+	color: #fff;
+}
+
+/* ---------- Recent searches row (persisted locally, max 5) ---------- */
+
+#recent-searches {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	max-width: 720px;
+	margin: -6px auto 18px;
+}
+
+#recent-searches[hidden] {
+	display: none;
+}
+
+.recent-label {
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.8px;
+	color: var(--text-muted);
+	flex-shrink: 0;
+}
+
+.recent-chips {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+	align-items: center;
+	flex: 1;
+	min-width: 0;
+}
+
+.recent-chip {
+	padding: 6px 12px;
+	border-radius: 999px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	color: var(--text-secondary);
+	font-size: 12px;
+	font-weight: 500;
+	font-family: "Inter", sans-serif;
+	cursor: pointer;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast),
+		transform var(--transition-fast);
+}
+
+.recent-chip:hover {
+	background: var(--surface-2);
+	color: var(--text-primary);
+}
+
+.recent-chip:active {
+	transform: scale(0.96);
+}
+
+.recent-clear {
+	width: 26px;
+	height: 26px;
+	flex-shrink: 0;
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.recent-clear:hover {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}
+
+/* Animated "Searching…" heading shown while a query is in flight */
+.searching {
+	display: inline-flex;
+	align-items: center;
+	gap: 9px;
+}
+
+.searching-dot {
+	width: 12px;
+	height: 12px;
+	flex-shrink: 0;
+	border-radius: 50%;
+	border: 2px solid var(--accent-soft);
+	border-top-color: var(--accent-primary);
+	animation: searching-spin 0.8s linear infinite;
+}
+
+@keyframes searching-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* Empty / no-results state: hint text + one-tap clear action */
+.empty-hint {
+	font-size: 13px;
+	color: var(--text-muted);
+	margin-top: 8px;
+}
+
+.empty-action {
+	margin-top: 18px;
+	padding: 8px 18px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--surface);
+	color: var(--text-primary);
+	font-size: 13px;
+	font-weight: 600;
+	font-family: "Inter", sans-serif;
+	cursor: pointer;
+	transition: background var(--transition-fast);
+}
+
+.empty-action:hover {
+	background: var(--surface-2);
+}
+
+/* Active genre filter tag shown above the search results */
+.active-filter {
+	width: fit-content;
+	max-width: 100%;
+	margin: -6px auto 16px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px 6px 14px;
+	border-radius: 999px;
+	background: var(--accent-soft);
+	color: var(--text-primary);
+	font-size: 13px;
+	font-weight: 500;
+}
+
+.active-filter[hidden] {
+	display: none;
+}
+
+.active-filter-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.active-filter-label strong {
+	color: var(--accent-primary);
+	font-weight: 700;
+}
+
+.active-filter-clear {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 22px;
+	height: 22px;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-secondary);
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.active-filter-clear:hover {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}

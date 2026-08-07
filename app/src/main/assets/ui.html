@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+		/>
+		<!-- Declare both color schemes so the Android WebView reports the real
+		     system theme to prefers-color-scheme without algorithmically
+		     darkening the page (the app themes itself). -->
+		<meta name="color-scheme" content="dark light" />
+		<title>Elsnime</title>
+		<link
+			href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+			rel="stylesheet"
+		/>
+		<link rel=preconnect href=https://fonts.googleapis.com>
+		<link rel=stylesheet href=https://cdn.plyr.io/3.7.8/plyr.css>
+		<link rel=stylesheet href=css/base.css>
+		<link rel=stylesheet href=css/layout.css>
+		<link rel=stylesheet href=css/search.css>
+		<link rel=stylesheet href=css/cards.css>
+		<link rel=stylesheet href=css/detail.css>
+		<link rel=stylesheet href=css/player.css>
+		<link rel=stylesheet href=css/youtube.css>
+		<link rel=stylesheet href=css/history.css>
+		<link rel=stylesheet href=css/settings.css>
+		<link rel=stylesheet href=css/toast.css>
+		<link rel=stylesheet href=css/resolve.css>
+		<link rel=stylesheet href=css/refresh.css>
+		<link rel=stylesheet href=css/responsive.css>
+	</head>
+	<body>
+		<div id="toast-container"></div>
+
+		<!-- Pull-to-refresh indicator (drag down on Home/Search/History) -->
+		<div id="refresh-indicator" class="refresh-indicator" aria-hidden="true">
+			<svg viewBox="0 0 24 24">
+				<path d="M23 4v6h-6"></path>
+				<path d="M1 20v-6h6"></path>
+				<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+			</svg>
+			<span id="refresh-label">Pull to refresh</span>
+		</div>
+
+		<!-- Disambiguation picker: shown when several AniDB entries match a title -->
+		<div
+			id="resolve-modal"
+			class="resolve-overlay"
+			hidden
+			role="dialog"
+			aria-modal="true"
+			aria-label="Choose a title"
+			onclick="if(event.target===this)closeResolvePicker()"
+		>
+			<div class="resolve-sheet">
+				<div class="resolve-head">
+					<div class="resolve-kicker">Multiple titles matched</div>
+					<div class="resolve-subtitle" id="resolve-subtitle"></div>
+				</div>
+				<div id="resolve-list"></div>
+				<button class="resolve-cancel" onclick="closeResolvePicker()">Cancel</button>
+			</div>
+		</div>
+
+		<div id="app">
+			<main id="main">
+				<!-- Home: history / continue watching + popular -->
+				<div class="view" id="view-home">
+					<div class="page-title">Elsnime</div>
+					<div id="home-continue-section" class="home-section"></div>
+					<div id="home-trending-section" class="home-section"></div>
+				</div>
+
+				<!-- Search: search + popular -->
+				<div class="view active" id="view-search">						<div id="search-bar-wrap">
+							<span class="search-icon"
+								><svg viewBox="0 0 24 24">
+									<circle cx="11" cy="11" r="8"></circle>
+									<line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg
+							></span>
+							<input
+								id="search-input"
+								type="text"
+								placeholder="Search anime..."
+								autocomplete="off"
+							/>
+							<button
+								id="search-clear"
+								type="button"
+								aria-label="Clear search"
+								title="Clear"
+								onclick="clearQueryFilter()"
+							>
+								<svg viewBox="0 0 24 24">
+									<line x1="18" y1="6" x2="6" y2="18"></line>
+									<line x1="6" y1="6" x2="18" y2="18"></line>
+								</svg>
+							</button>						</div>
+						<!-- Recent searches: persisted locally, re-tap to re-run a query -->
+						<div id="recent-searches" hidden></div>
+						<div class="genre-chips" id="genre-chips" aria-label="Anime genres"></div>
+					<!-- Active genre filter tag: visible while a genre chip is selected -->
+					<div id="active-filter" class="active-filter" hidden></div>
+					<div id="trending-section" class="trending-grid"></div>
+					<div id="search-results"></div>
+				</div>
+
+				<!-- Detail -->
+				<div class="view" id="view-detail">
+					<button class="back-btn" onclick="popView()">
+						<svg
+							width="18"
+							height="18"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<polyline points="15 18 9 12 15 6"></polyline>
+						</svg>
+						Back
+					</button>
+
+					<div class="detail-hero" id="detail-hero">
+						<img
+							id="detail-banner"
+							src
+							alt
+							onerror="hideDetailBanner(this)"
+						/>
+						<div class="detail-hero-scrim"></div>
+						<div class="detail-hero-inner">
+							<img id="detail-cover" class="detail-hero-poster" src alt />
+							<div class="detail-hero-meta">
+								<div class="detail-title" id="detail-title">&mdash;</div>
+								<div class="detail-subtitle" id="detail-subtitle"></div>
+								<div class="badge-row" id="detail-badges"></div>
+							</div>
+						</div>
+					</div>
+
+					<div class="detail-cols">
+						<div class="detail-main">
+							<div class="detail-actions">
+								<button
+									class="yt-play-btn"
+									id="btn-play-first"
+									onclick="playFirstEp()"
+									disabled
+								>
+									<svg viewBox="0 0 24 24">
+										<polygon points="6 3 20 12 6 21 6 3"></polygon>
+									</svg>
+									Play
+								</button>
+								<div class="seg-ctrl" id="detail-seg-ctrl">
+									<button
+										class="seg-btn active"
+										data-lang="sub"
+										onclick="switchTranslation('sub', this)"
+									>
+										SUB
+									</button>
+									<button
+										class="seg-btn"
+										data-lang="dub"
+										onclick="switchTranslation('dub', this)"
+									>
+										DUB
+									</button>
+								</div>
+							</div>
+
+							<div class="yt-desc-box">
+								<div id="detail-desc"></div>
+								<button
+									class="yt-more-btn"
+									id="detail-more-btn"
+									onclick="toggleDesc()"
+								>
+									Show more
+								</button>
+							</div>
+						</div>
+
+						<div class="detail-side">
+							<div class="upnext-head">
+								<span class="section-title">Episodes</span>
+								<span class="upnext-count" id="ep-count"></span>
+							</div>
+							<div id="eps-grid"></div>
+						</div>
+					</div>
+				</div>
+
+				<!-- Player -->
+				<div class="view" id="view-player">
+					<button class="back-btn" onclick="popView()">
+						<svg
+							width="18"
+							height="18"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<polyline points="15 18 9 12 15 6"></polyline>
+						</svg>
+						Back to series
+					</button>
+
+					<div class="watch-cols">
+						<div class="watch-main">
+							<div id="video-wrap">
+								<video id="video" playsinline controls></video>
+
+								<!-- Floating player controls: skip ±10s + fullscreen. They
+								     auto-hide like YouTube: visible on interaction, fading out
+								     after a few seconds (see player.css / player.js). -->
+								<div class="player-ov player-ov--left">
+									<button
+										type="button"
+										class="ov-btn"
+										data-action="seek-back"
+										aria-label="Back 10 seconds"
+										title="Back 10s"
+									>
+										<svg viewBox="0 0 24 24">
+											<path
+												d="M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"
+											></path>
+										</svg>
+									</button>
+									<button
+										type="button"
+										class="ov-btn"
+										data-action="seek-fwd"
+										aria-label="Forward 10 seconds"
+										title="Forward 10s"
+									>
+										<svg viewBox="0 0 24 24">
+											<path
+												d="M12 5V1l5 5-5 5V7c-3.3 0-6 2.7-6 6s2.7 6 6 6 6-2.7 6-6h1c0 4.4-3.6 8-8 8s-8-3.6-8-8 3.6-8 8-8z"
+											></path>
+										</svg>
+									</button>
+								</div>
+								<div class="player-ov player-ov--right">
+									<button
+										type="button"
+										class="ov-btn"
+										data-action="fullscreen"
+										aria-label="Fullscreen"
+										title="Fullscreen"
+									>
+										<svg viewBox="0 0 24 24">
+											<path
+												d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
+											></path>
+										</svg>
+									</button>
+								</div>
+
+								<!-- Double-tap seek feedback -->
+								<div id="seek-indicator" class="seek-indicator" aria-hidden="true">
+									<svg
+										id="seek-indicator-icon"
+										viewBox="0 0 24 24"
+									>
+										<path
+											d="M12 5V1l5 5-5 5V7c-3.3 0-6 2.7-6 6s2.7 6 6 6 6-2.7 6-6h1c0 4.4-3.6 8-8 8s-8-3.6-8-8 3.6-8 8-8z"
+										></path>
+									</svg>
+									<span id="seek-indicator-time">0:00</span>
+								</div>
+							</div>
+
+							<div id="player-title">Title <span id="player-ep-label"></span></div>
+
+							<div class="watch-channel">
+								<img
+									id="player-avatar"
+									class="watch-avatar"
+									src
+									alt
+									onerror="this.style.display = 'none'"
+								/>
+								<div class="watch-channel-meta">
+									<div class="watch-channel-name" id="watch-channel-name"></div>
+									<div class="watch-channel-sub" id="watch-channel-sub"></div>
+								</div>
+								<div class="seg-ctrl seg-ctrl--sm" id="player-seg-ctrl">
+									<button
+										class="seg-btn active"
+										data-lang="sub"
+										onclick="switchTranslation('sub', this)"
+									>
+										SUB
+									</button>
+									<button
+										class="seg-btn"
+										data-lang="dub"
+										onclick="switchTranslation('dub', this)"
+									>
+										DUB
+									</button>
+								</div>
+							</div>
+
+							<div id="player-actions">
+								<button class="action-btn" onclick="markWatched()">
+									<svg viewBox="0 0 24 24">
+										<polyline points="20 6 9 17 4 12"></polyline>
+									</svg>
+									Mark Watched
+								</button>
+								<button class="action-btn" id="btn-mpv" onclick="playInMpv()">
+									<svg viewBox="0 0 24 24">
+										<polygon points="5 3 19 12 5 21 5 3"></polygon>
+									</svg>
+									Open in MPV
+								</button>
+								<span class="yt-actions-spacer"></span>
+								<button
+									class="action-btn icon-only"
+									id="btn-prev"
+									onclick="playAdjacentEp(-1)"
+									title="Previous episode"
+									aria-label="Previous episode"
+								>
+									<svg viewBox="0 0 24 24">
+										<polyline points="15 18 9 12 15 6"></polyline>
+									</svg>
+								</button>
+								<button
+									class="action-btn icon-only"
+									id="btn-next"
+									onclick="playAdjacentEp(1)"
+									title="Next episode"
+									aria-label="Next episode"
+								>
+									<svg viewBox="0 0 24 24">
+										<polyline points="9 18 15 12 9 6"></polyline>
+									</svg>
+								</button>
+							</div>
+
+							<div id="player-error"></div>
+						</div>
+
+						<div class="watch-side">
+							<div class="upnext-head">
+								<span class="upnext-label">Up next</span>
+								<span class="upnext-count" id="upnext-count"></span>
+							</div>
+							<div id="eps-list"></div>
+						</div>
+					</div>
+				</div>
+
+				<!-- Full history (reached from Home via See all) -->
+				<div class="view" id="view-history">
+					<button class="back-btn" onclick="popView()">
+						<svg
+							width="18"
+							height="18"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<polyline points="15 18 9 12 15 6"></polyline>
+						</svg>
+						Back
+					</button>
+					<div class="page-title">History</div>
+					<div id="history-list"></div>
+				</div>
+
+				<!-- Settings -->
+				<div class="view" id="view-settings">
+					<div class="page-title">Settings</div>
+					<div class="settings-shell">
+						<section class="settings-group">
+							<div class="settings-kicker">Appearance</div>
+							<div class="settings-list">
+								<div class="settings-row">
+									<div class="settings-label">Theme</div>
+									<div
+										class="pill-slider"
+										id="pill-theme"
+										data-setting="theme"
+									>
+										<div class="pill-highlight"></div>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="dark"
+											onclick="selectPillOption(this)"
+										>
+											Dark
+										</button>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="light"
+											onclick="selectPillOption(this)"
+										>
+											Light
+										</button>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="auto"
+											onclick="selectPillOption(this)"
+										>
+											Auto
+										</button>
+									</div>
+								</div>
+							</div>
+						</section>
+						<section class="settings-group">
+							<div class="settings-kicker">Playback</div>
+							<div class="settings-list">
+								<div class="settings-row">
+									<div class="settings-label">Default Player</div>
+									<div
+										class="pill-slider"
+										id="pill-player"
+										data-setting="player"
+									>
+										<div class="pill-highlight"></div>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="web"
+											onclick="selectPillOption(this)"
+										>
+											Web
+										</button>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="mpv"
+											onclick="selectPillOption(this)"
+										>
+											MPV
+										</button>
+									</div>
+								</div>
+								<div class="settings-row">
+									<div class="settings-label">Default Language</div>
+									<div
+										class="pill-slider"
+										id="pill-lang"
+										data-setting="sub_lang"
+									>
+										<div class="pill-highlight"></div>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="sub"
+											onclick="selectPillOption(this)"
+										>
+											Sub
+										</button>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="dub"
+											onclick="selectPillOption(this)"
+										>
+											Dub
+										</button>
+									</div>
+								</div>
+							</div>
+						</section>
+						<section class="settings-group">
+							<div class="settings-kicker">Data</div>
+							<div class="settings-list">
+								<div class="settings-row">
+									<div class="settings-label">
+										Reset all settings to defaults
+									</div>
+									<button
+										class="soft-btn"
+										type="button"
+										onclick="resetSettings()"
+									>
+										Reset
+									</button>
+								</div>
+								<div class="settings-row">
+									<div class="settings-label">Clear watch history</div>
+									<button
+										class="danger-btn"
+										type="button"
+										onclick="clearHistory()"
+									>
+										<svg viewBox="0 0 24 24">
+											<polyline points="3 6 5 6 21 6"></polyline>
+											<path
+												d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+											></path>
+										</svg>
+										Clear
+									</button>
+								</div>
+							</div>
+						</section>
+					</div>
+				</div>
+			</main>
+
+			<!-- Bottom navigation -->
+			<nav id="bottom-nav">
+				<button
+					class="nav-btn"
+					id="nav-home"
+					title="Home (G)"
+					onclick="navigate('home')"
+				>
+					<svg viewBox="0 0 24 24">
+						<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+						<polyline points="9 22 9 12 15 12 15 22"></polyline>
+					</svg>
+					<span class="nav-label">Home</span>
+				</button>
+				<button
+					class="nav-btn active"
+					id="nav-search"
+					title="Search (K)"
+					onclick="navigate('search')"
+				>
+					<svg viewBox="0 0 24 24">
+						<circle cx="11" cy="11" r="8"></circle>
+						<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+					</svg>
+					<span class="nav-label">Search</span>
+				</button>
+				<button
+					class="nav-btn"
+					id="nav-settings"
+					title="Settings (S)"
+					onclick="navigate('settings')"
+				>
+					<svg viewBox="0 0 24 24">
+						<circle cx="12" cy="12" r="3"></circle>
+						<path
+							d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+						></path>
+					</svg>
+					<span class="nav-label">Settings</span>
+				</button>
+			</nav>
+		</div>
+		<script src=https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js></script>
+		<script src=https://cdn.plyr.io/3.7.8/plyr.js></script>
+		<!-- Keep this order; boot.js must load last (it starts the app) -->
+		<script src="js/core.js"></script>
+		<script src="js/search.js"></script>
+		<script src="js/home.js"></script>
+		<script src="js/detail.js"></script>
+		<script src="js/player.js"></script>
+		<script src="js/history.js"></script>
+		<script src="js/boot.js"></script>
+	</body>
+</html>
