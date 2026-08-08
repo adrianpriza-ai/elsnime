@@ -157,7 +157,7 @@
 
 .chip.active {
 	background: var(--accent-primary);
-	color: #fff;
+	color: var(--on-accent);
 }
 
 /* ---------- Recent searches row (persisted locally, max 5) ---------- */

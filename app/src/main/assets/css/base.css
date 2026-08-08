@@ -42,6 +42,14 @@
 	--success: #2fbf71;
 	--danger: #ef4444;
 	--danger-bg: rgba(239, 68, 68, 0.1);
+	--danger-strong: rgba(239, 68, 68, 0.3); /* danger borders */
+	--danger-hover: rgba(239, 68, 68, 0.18); /* danger hover fill */
+
+	/* Progress-track background — themed per mode (see core.js applyTheme). */
+	--track-bg: rgba(255, 255, 255, 0.12);
+
+	/* Text on accent-filled controls (buttons, pills, active chips). */
+	--on-accent: #fff;
 
 	--radius-lg: 12px;
 	--radius-md: 8px;

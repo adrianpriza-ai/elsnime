@@ -8,24 +8,22 @@ android {
         minSdk = 23
         targetSdk = 35
         versionCode = 1
-        versionName = '0.1-Kilo'
+        versionName = '0.1-November'
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    // Cronet bundles ~25 MB of native libs across 4 ABIs. Split them so each
-    // device/emulator only downloads the .so for its own ABI (~7 MB arm64).
     splits {
         abi {
-            enable true
+            enable = true
             reset()
             include 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
-            universalApk false
+            universalApk = false
         }
     }
     bundle {
-        abi { enableSplit true } // Play Store path: per-ABI delivery (default, explicit)
+        abi { enableSplit = true } // Play Store path: per-ABI delivery (default, explicit)
     }
 }
 

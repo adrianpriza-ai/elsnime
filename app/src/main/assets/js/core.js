@@ -15,15 +15,60 @@ function showToast(message, type = 'info') {
   } else {
     iconSvg = '<svg class="toast-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
   }
-  toast.innerHTML = `${iconSvg}<span>${message}</span>`;
-  container.appendChild(toast);
-  setTimeout(() => {
-    toast.classList.add('out');
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  toast.innerHTML = `${iconSvg}<span>${message}</span>`;	container.appendChild(toast);
+	setTimeout(() => {
+		toast.classList.add('out');
+		setTimeout(() => toast.remove(), 300);
+	}, 3000);
 }
 
-//  State 
+//  Confirmation dialog 
+// window.confirm() is a silent no-op inside the Android WebView (the app sets
+// no WebChromeClient, so the call just returns false), which made the settings
+// Clear-history / Reset buttons do nothing. Destructive actions now use this
+// in-app dialog instead — it works identically in the WebView and in dev.
+let confirmResolve = null;
+let confirmPrevFocus = null;
+const CONFIRM_ICONS = {
+	danger: '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>',
+	action: '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>',
+};
+
+function showConfirm({ title = 'Are you sure?', message = '', confirmLabel = 'Confirm', danger = false } = {}) {
+	const modal = document.getElementById('confirm-modal');
+	if (!modal) return Promise.resolve(false);
+	document.getElementById('confirm-title').textContent = title;
+	document.getElementById('confirm-message').textContent = message;
+	const ok = document.getElementById('confirm-ok');
+	ok.classList.toggle('danger-btn', danger);
+	ok.classList.toggle('confirm-btn', !danger);
+	document.getElementById('confirm-ok-label').textContent = confirmLabel;
+	document.querySelector('.confirm-ok-icon').innerHTML = danger ? CONFIRM_ICONS.danger : CONFIRM_ICONS.action;
+	confirmPrevFocus = document.activeElement;
+	modal.hidden = false;
+	// Focus the least destructive choice: Cancel for destructive actions, the
+	// confirm button otherwise, so Enter never trips a destructive action.
+	(danger ? document.getElementById('confirm-cancel') : ok).focus();
+	return new Promise(resolve => { confirmResolve = resolve; });
+}
+
+function closeConfirm(result) {
+	const modal = document.getElementById('confirm-modal');
+	if (!modal || modal.hidden) return;
+	modal.hidden = true;
+	if (confirmResolve) {
+		const settle = confirmResolve;
+		confirmResolve = null;
+		settle(!!result);
+	}
+	// Return focus to the button that opened the dialog (a11y).
+	if (confirmPrevFocus && typeof confirmPrevFocus.focus === 'function') {
+		confirmPrevFocus.focus();
+	}
+	confirmPrevFocus = null;
+}
+
+//  State  
 const S = {
   anime:       null,
   episodes:    [],
@@ -109,20 +154,25 @@ const api = {
 // dev-mode browsers fall back to app.py's /api/stream + /api/mpv endpoints.
 // Resolves to { ok, url, raw, type } or { error, url?, raw?, type? } so the
 // caller can still fall back to the web player when only MPV fails.
+// The stream CDN expects a real browser UA + the embed page as referrer — the
+// WebView's own UA string ("Elsnime Android") and the app origin get mpv's
+// request blocked, so both are overridden here (the scraper stamps the embed
+// referrer onto the stream result; see AniDbScraper.stream()).
+// Same UA the scraper uses, so the CDN sees an identical fingerprint.
+const MPV_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36';
 function playInMpvNative(animeId, episode, type) {
   const referer = 'https://anidb.app';
-  const ua = navigator.userAgent || 'Mozilla/5.0';
   if (window.AndroidApi) {
     return new Promise(resolve => {
       const id = String(++androidRequestId);
       androidRequests.set(id, resolve);
-      window.AndroidApi.playInMpv(id, String(animeId), String(episode), type, referer, ua);
+      window.AndroidApi.playInMpv(id, String(animeId), String(episode), type, referer, MPV_UA);
     });
   }
   return api.get(`/api/stream?id=${encodeURIComponent(animeId)}&episode=${encodeURIComponent(episode)}&type=${type}`)
     .then(stream => {
       if (!stream || !stream.url) return { error: 'No stream available' };
-      return api.post('/api/mpv', { url: stream.raw || stream.url, referer, user_agent: ua })
+      return api.post('/api/mpv', { url: stream.raw || stream.url, referer: stream.referer || referer, user_agent: MPV_UA })
         .then(res => ({ url: stream.url, raw: stream.raw || stream.url, type: stream.type, ...res }));
     })
     .catch(() => ({ error: 'Failed to launch MPV' }));
@@ -238,6 +288,7 @@ function applyTheme(theme) {
     root.style.setProperty('--surface-2', '#e9ebf1');
     root.style.setProperty('--bg-hover', 'rgba(0,0,0,0.05)');
     root.style.setProperty('--border', 'rgba(0,0,0,0.1)');
+    root.style.setProperty('--track-bg', 'rgba(0,0,0,0.12)');
     root.style.setProperty('--text-primary', '#111318');
     root.style.setProperty('--text-secondary', '#4c5464');
     root.style.setProperty('--text-muted', '#8a93a3');
@@ -251,6 +302,7 @@ function applyTheme(theme) {
     root.style.setProperty('--surface-2', '#272727');
     root.style.setProperty('--bg-hover', 'rgba(255,255,255,0.1)');
     root.style.setProperty('--border', 'rgba(255,255,255,0.1)');
+    root.style.setProperty('--track-bg', 'rgba(255,255,255,0.12)');
     root.style.setProperty('--text-primary', '#f1f1f1');
     root.style.setProperty('--text-secondary', '#aaaaaa');
     root.style.setProperty('--text-muted', '#717171');
@@ -312,7 +364,12 @@ function refreshPillSliders() {
 }
 
 async function resetSettings() {
-  if (!confirm('Reset all settings to defaults?')) return;
+  const ok = await showConfirm({
+    title: 'Reset settings?',
+    message: 'All settings will be restored to their defaults.',
+    confirmLabel: 'Reset',
+  });
+  if (!ok) return;
 
   S.settings = { ...DEFAULT_SETTINGS };
   try {

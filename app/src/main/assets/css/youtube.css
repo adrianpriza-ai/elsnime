@@ -45,7 +45,7 @@
 .detail-hero-poster {
 	width: 88px;
 	flex-shrink: 0;
-	border-radius: 8px;
+	border-radius: var(--radius-md);
 	display: block;
 	background: var(--surface-2);
 }
@@ -82,7 +82,7 @@
 
 .detail-hero-meta .badge.accent {
 	background: var(--accent-primary);
-	color: #fff;
+	color: var(--on-accent);
 }
 
 /* No banner available -> static card layout, text readable on surface */
@@ -132,7 +132,7 @@
 	border: 0;
 	border-radius: 999px;
 	background: var(--accent-primary);
-	color: #fff;
+	color: var(--on-accent);
 	font-size: 15px;
 	font-weight: 700;
 	font-family: inherit;
@@ -292,7 +292,7 @@
 	width: 100%;
 	padding: 8px;
 	border: 0;
-	border-radius: 10px;
+	border-radius: var(--radius-md);
 	background: none;
 	color: inherit;
 	font-family: "Inter", sans-serif;
@@ -315,7 +315,7 @@
 	flex-shrink: 0;
 	width: 126px;
 	aspect-ratio: 16 / 9;
-	border-radius: 8px;
+	border-radius: var(--radius-md);
 	overflow: hidden;
 	background: var(--surface-2);
 }
@@ -337,7 +337,7 @@
 	font-weight: 700;
 	letter-spacing: 0.4px;
 	padding: 2px 7px;
-	border-radius: 4px;
+	border-radius: var(--radius-sm);
 }
 
 .yt-ep-row.partial .yt-ep-chip {
@@ -405,7 +405,7 @@
 	color: var(--text-muted);
 	background: var(--surface-2);
 	padding: 3px 8px;
-	border-radius: 4px;
+	border-radius: var(--radius-sm);
 }
 
 /* ---------- Watch page (player) ---------- */
@@ -550,7 +550,7 @@
 	background: var(--danger-bg);
 	padding: 12px 16px;
 	border-radius: var(--radius-md);
-	border: 1px solid rgba(239, 68, 68, 0.3);
+	border: 1px solid var(--danger-strong);
 }
 
 /* ---------- Two-column layout (desktop) ---------- */

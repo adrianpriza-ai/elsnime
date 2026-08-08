@@ -63,6 +63,11 @@ document.addEventListener('keydown', e => {
 // Returns true when the press was consumed by the app, false when the user is on
 // a root tab and Android should exit.
 window.handleAppBack = function() {
+  const confirmModal = document.getElementById('confirm-modal');
+  if (confirmModal && !confirmModal.hidden) {
+    closeConfirm(false);
+    return true;
+  }
   const resolveModal = document.getElementById('resolve-modal');
   if (resolveModal && !resolveModal.hidden) {
     closeResolvePicker();

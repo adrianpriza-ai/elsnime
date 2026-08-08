@@ -36,8 +36,15 @@ function maybePersistPlaybackProgress(force = false) {
   saveProgress(S.currentEp.ep, progress, duration, force);
 }
 
-function timeAgo(dateStr) {
-  const date = new Date(dateStr);
+function timeAgo(value) {
+  // last_watched is persisted as Unix SECONDS (SQLite strftime('%s','now') and
+  // System.currentTimeMillis()/1000 in the Android backend), while new Date()
+  // expects milliseconds. Heuristic: epoch-ms timestamps are >= 1e11 (year
+  // ~5138), current epoch-seconds are ~1.7e9 — so anything below is seconds.
+  let ts = Number(value);
+  if (!Number.isFinite(ts)) ts = Date.now();
+  if (ts < 1e11) ts *= 1000;
+  const date = new Date(ts);
   const now = new Date();
   const seconds = Math.floor((now - date) / 1000);
   if (seconds < 60) return 'just now';
@@ -108,9 +115,16 @@ async function resumeFromHistory(id) {
 }
 
 async function clearHistory() {
-  if (!confirm('Clear all watch history?')) return;
+  const ok = await showConfirm({
+    title: 'Clear watch history?',
+    message: 'This removes all watch progress and continue-watching entries. This cannot be undone.',
+    confirmLabel: 'Clear',
+    danger: true,
+  });
+  if (!ok) return;
   const history = await api.get('/api/history').catch(() => []);
   await Promise.all(history.map(h => api.del('/api/history/' + h.id)));
+  S.history = [];
   loadHistory();
   showToast('History cleared', 'success');
 }

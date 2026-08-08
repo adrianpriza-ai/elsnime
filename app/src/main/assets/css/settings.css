@@ -1,22 +1,19 @@
-/* settings.css — Native-style settings list
-   Labels sit beside their control, groups are flat with
-   row dividers — no card borders. */
+/* settings.css — Android-style settings list
+   Labels sit beside their control; each group is a rounded surface
+   with flat rows (no separators), like the modern Settings app. */
 
 .settings-shell {
 	max-width: 640px;
 	margin: 0 auto 32px;
 	display: grid;
-	gap: 22px;
+	gap: 24px;
 }
 
 .settings-kicker {
-	font-size: 12px;
-	font-weight: 600;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: var(--text-muted);
-	margin-bottom: 8px;
-	padding: 0 4px;
+	font-size: 14px;
+	font-weight: 500;
+	color: var(--text-secondary);
+	margin: 0 16px 8px;
 }
 
 .settings-list {
@@ -30,13 +27,18 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 16px;
-	min-height: 52px;
-	padding: 10px 16px;
-	border-top: 1px solid var(--border);
+	min-height: 56px;
+	padding: 8px 16px;
+	transition: background var(--transition-fast);
 }
 
-.settings-row:first-child {
-	border-top: 0;
+/* Android-style press/hover feedback on the whole row */
+.settings-row:hover {
+	background: var(--bg-hover);
+}
+
+.settings-row:active {
+	background: var(--surface-2);
 }
 
 .settings-label {
@@ -47,11 +49,13 @@
 	color: var(--text-primary);
 }
 
-/* Segmented option control (highlight element kept for JS compat, hidden) */
+/* Segmented option control — identical shape/styling to the SUB/DUB
+   seg-ctrl in youtube.css (highlight element kept for JS compat, hidden) */
 .pill-slider {
 	display: inline-flex;
-	background: var(--surface-2);
-	border-radius: var(--radius-md);
+	background: transparent;
+	border: 1px solid var(--border);
+	border-radius: 999px;
 	padding: 3px;
 	position: relative;
 }
@@ -61,7 +65,7 @@
 	border: 0;
 	background: transparent;
 	color: var(--text-secondary);
-	border-radius: 6px;
+	border-radius: 999px;
 	font-family: "Inter", sans-serif;
 	font-size: 13px;
 	font-weight: 600;
@@ -80,7 +84,7 @@
 
 .pill-option.active {
 	background: var(--accent-primary);
-	color: #fff;
+	color: var(--on-accent);
 }
 
 .pill-highlight {
@@ -89,7 +93,8 @@
 
 /* Data / action buttons */
 .soft-btn,
-.danger-btn {
+.danger-btn,
+.confirm-btn {
 	padding: 9px 18px;
 	border-radius: var(--radius-md);
 	border: 0;
@@ -100,7 +105,9 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 8px;
-	transition: background var(--transition-fast);
+	transition:
+		background var(--transition-fast),
+		filter var(--transition-fast);
 }
 
 .soft-btn {
@@ -118,10 +125,11 @@
 }
 
 .danger-btn:hover {
-	background: rgba(239, 68, 68, 0.18);
+	background: var(--danger-hover);
 }
 
-.danger-btn svg {
+.danger-btn svg,
+.confirm-btn svg {
 	width: 16px;
 	height: 16px;
 	fill: none;
@@ -129,6 +137,75 @@
 	stroke-width: 2;
 	stroke-linecap: round;
 	stroke-linejoin: round;
+}
+
+/* Confirmation dialog — replaces window.confirm, which is a silent no-op in
+   the Android WebView (the app doesn't set a WebChromeClient). */
+.confirm-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 950;
+	background: rgba(0, 0, 0, 0.6);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+}
+
+.confirm-overlay[hidden] {
+	display: none;
+}
+
+.confirm-sheet {
+	width: 100%;
+	max-width: 360px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	padding: 20px;
+	box-shadow: var(--shadow);
+	animation: confirm-pop var(--transition-normal);
+}
+
+@keyframes confirm-pop {
+	from {
+		opacity: 0;
+		transform: scale(0.96);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+.confirm-title {
+	font-size: 16px;
+	font-weight: 700;
+	color: var(--text-primary);
+}
+
+.confirm-message {
+	margin-top: 8px;
+	font-size: 14px;
+	line-height: 1.45;
+	color: var(--text-secondary);
+}
+
+.confirm-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	margin-top: 20px;
+}
+
+/* Non-destructive confirm button (accent-filled) */
+.confirm-btn {
+	background: var(--accent-primary);
+	color: var(--on-accent);
+}
+
+.confirm-btn:hover {
+	filter: brightness(0.92);
 }
 
 /* Empty states (search results, history) */

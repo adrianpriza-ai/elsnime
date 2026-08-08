@@ -64,6 +64,44 @@
 			</div>
 		</div>
 
+		<!-- Confirmation dialog: window.confirm() is a silent no-op inside the
+		     Android WebView (the app sets no WebChromeClient), so destructive
+		     actions use this in-app dialog instead. -->
+		<div
+			id="confirm-modal"
+			class="confirm-overlay"
+			hidden
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="confirm-title"
+			aria-describedby="confirm-message"
+			onclick="if(event.target===this)closeConfirm(false)"
+		>
+			<div class="confirm-sheet" role="document">
+				<div class="confirm-title" id="confirm-title"></div>
+				<div class="confirm-message" id="confirm-message"></div>
+				<div class="confirm-actions">
+					<button
+						class="soft-btn"
+						type="button"
+						id="confirm-cancel"
+						onclick="closeConfirm(false)"
+					>
+						Cancel
+					</button>
+					<button
+						class="confirm-btn"
+						type="button"
+						id="confirm-ok"
+						onclick="closeConfirm(true)"
+					>
+						<span class="confirm-ok-icon"></span>
+						<span id="confirm-ok-label">Confirm</span>
+					</button>
+				</div>
+			</div>
+		</div>
+
 		<div id="app">
 			<main id="main">
 				<!-- Home: history / continue watching + popular -->

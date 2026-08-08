@@ -97,7 +97,9 @@ public final class AniDbScraper {
         String manifest=get(master,embed,ANIDB);
         String url=bestVariant(master,manifest);
         if(url.isEmpty())return error("No video quality found");
-        return new JSONObject().put("url",url).put("raw",url).put("type","hls");
+        // "referer" is the embed page the manifest was fetched with; mpv needs
+        // it (plus a browser UA) to load the CDN playlist outside the WebView.
+        return new JSONObject().put("url",url).put("raw",url).put("type","hls").put("referer",embed);
     }
 
     public JSONArray trending() throws Exception { return cachedArray("trending",TTL_DAY,this::trendingUncached); }

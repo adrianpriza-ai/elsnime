@@ -97,12 +97,16 @@ public final class MainActivity extends Activity {
             boolean cli=mpvCliAvailable(), app=mpvAppAvailable();
             try{return new JSONObject().put("cli",cli).put("app",app).put("available",cli||app).toString();}catch(Exception ignored){return "{\"available\":false}";}
         }
-        private boolean mpvCliAvailable(){
+        // Resolve the full mpv binary path. The app process PATH rarely includes
+        // Termux's bin dir, so launching by bare name would fail even though the
+        // detection above found the binary — always exec the absolute path.
+        private String mpvCliPath(){
             String path=System.getenv("PATH");
             String dirs=(path==null?"":path)+":/data/data/com.termux/files/usr/bin:/usr/bin";
-            for(String d:dirs.split(":")){if(!d.isEmpty()&&new java.io.File(d,"mpv").canExecute())return true;}
-            return false;
+            for(String d:dirs.split(":")){if(!d.isEmpty()){java.io.File f=new java.io.File(d,"mpv");if(f.canExecute())return f.getAbsolutePath();}}
+            return null;
         }
+        private boolean mpvCliAvailable(){return mpvCliPath()!=null;}
         private boolean mpvAppAvailable(){
             try{appContext.getPackageManager().getPackageInfo("is.mpv.android",0);return true;}catch(Exception ignored){return false;}
         }
@@ -128,17 +132,22 @@ public final class MainActivity extends Activity {
             try{
                 JSONObject stream=scraper.stream(animeId,episode,type);
                 String url=stream.optString("url");
+                // The stream result carries the embed page the manifest was fetched
+                // from — mpv must present it (plus the browser UA) to load the CDN.
+                String streamReferer=stream.optString("referer",referer);
                 out.put("url",url).put("raw",stream.optString("raw",url)).put("type",stream.opt("type"));
                 if(url.isEmpty())return out.put("error","No stream available").toString();
-                if(mpvCliAvailable())launchMpv(url,referer,userAgent);
+                if(mpvCliAvailable())launchMpv(url,streamReferer,userAgent);
                 else if(mpvAppAvailable())launchMpvApp(url);
                 else return out.put("error","MPV is not installed on this device").toString();
                 return out.put("ok",true).toString();
             }catch(Exception e){try{return out.put("error",e.getMessage()==null?"Failed to launch MPV":e.getMessage()).toString();}catch(Exception ignored){return "{\"error\":\"Failed to launch MPV\"}";}}
         }
         private void launchMpv(String url,String referer,String userAgent)throws Exception{
+            String binary=mpvCliPath();
+            if(binary==null)throw new Exception("Could not launch MPV. Check if mpv is installed.");
             Process p;
-            try{p=new ProcessBuilder("mpv","--referrer="+referer,"--user-agent="+userAgent,"--force-window=yes",url).redirectErrorStream(true).start();}
+            try{p=new ProcessBuilder(binary,"--referrer="+referer,"--user-agent="+userAgent,"--force-window=yes",url).redirectErrorStream(true).start();}
             catch(java.io.IOException e){throw new Exception("Could not launch MPV. Check if mpv is installed.");}
             // Health check: on stock Android the binary can be world-executable yet
             // still die instantly (SELinux blocks cross-app exec, missing libs), so

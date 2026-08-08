@@ -54,7 +54,7 @@
 
 .progress-bar {
 	height: 4px;
-	background: rgba(255, 255, 255, 0.08);
+	background: var(--track-bg);
 	border-radius: 2px;
 	margin-top: 10px;
 	overflow: hidden;
@@ -76,13 +76,15 @@
 	background: var(--surface-2);
 	color: var(--text-muted);
 	cursor: pointer;
+	border: 1px solid transparent;
 	border-radius: var(--radius-sm);
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	transition:
 		background var(--transition-fast),
-		color var(--transition-fast);
+		color var(--transition-fast),
+		border-color var(--transition-fast);
 	z-index: 2;
 }
 
@@ -99,5 +101,5 @@
 .del-btn:hover {
 	background: var(--danger-bg);
 	color: var(--danger);
-	border-color: rgba(239, 68, 68, 0.4);
+	border-color: var(--danger-strong);
 }
