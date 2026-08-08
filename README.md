@@ -9,6 +9,8 @@ Elsnime is a lightweight, privacy-focused anime streaming client for Android. Bu
 
 There are no user accounts, no telemetry, no tracking, and no intrusive permission requests.
 
+**Author:** Adrian Priza Wijaya — [coreygit1@gmail.com](mailto:coreygit1@gmail.com)
+
 ---
 
 ## Core Design Philosophy
@@ -161,5 +163,7 @@ If we have inadvertently omitted your project or misattributed any work, please 
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+**Author & Maintainer:** Adrian Priza Wijaya — [coreygit1@gmail.com](mailto:coreygit1@gmail.com)
+
 ### Disclaimer
-Elsnime is purely a metadata scraper and stream resolver. It does not host, upload, or manage any of the audio/video streams indexed within the application. Please read the full legal policy in [DISCLAIMER.md](DISCLAIMER.md) before using or distributing this software.
+Elsnime is purely a metadata scraper and stream resolver. It does not host, upload, or manage any of the audio/video streams indexed within the application. Adrian Priza Wijaya is responsible only for the Elsnime application itself and not for any third-party services, APIs, or streaming platforms it interacts with. Please read the full legal policy in [DISCLAIMER.md](DISCLAIMER.md) before using or distributing this software.
