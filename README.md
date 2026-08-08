@@ -5,7 +5,7 @@
 [![Frontend-SPA](https://img.shields.io/badge/Frontend-Vanilla%20JS-blue.svg)](app/src/main/assets/ui.html)
 [![Backend-Java](https://img.shields.io/badge/Backend-Java%20%2F%20SQLite-orange.svg)](app/src/main/java/com/elsnime)
 
-Elsnime is a lightweight, privacy-focused anime streaming client for Android. Built with a unique **hybrid single-page app (SPA) architecture**, it wraps a highly responsive, modern vanilla CSS/JS frontend inside an Android WebView, backed by a high-performance native Java scraping engine and an SQLite data access layer.
+Elsnime is a lightweight, privacy-focused anime streaming client for Android. It wraps a responsive vanilla CSS/JS frontend inside an Android WebView, backed by a native Java scraping engine and an SQLite data access layer.
 
 There are no user accounts, no telemetry, no tracking, and no intrusive permission requests.
 
@@ -16,7 +16,7 @@ There are no user accounts, no telemetry, no tracking, and no intrusive permissi
 Unlike typical bloated streaming apps, Elsnime embraces a YouTube-style minimal aesthetic:
 - **AMOLED-friendly dark mode** as the primary theme, with options for light and automatic system tracking.
 - **Custom HLS.js + Plyr video player** featuring customized double-tap gestures to seek, smooth system orientation overrides, and absolute backdrop transparency.
-- **Zero-footprint data management**: Everything is stored in local SQLite databases.
+- **Local data management**: Everything is stored in local SQLite databases.
 - **Aggressive local cache** with TTL-based expiration and smart, scoped cache-invalidation (via pull-to-refresh) to stay lightweight and avoid rate limits.
 
 ---
@@ -26,7 +26,7 @@ Unlike typical bloated streaming apps, Elsnime embraces a YouTube-style minimal 
 ### Search and Discovery
 - **Fuzzy Search**: Instant, query-based search against AniDB browse pages.
 - **Smart Disambiguation**: Resolves title overlaps and presents alternative matching choices when necessary.
-- **Advanced Metadata Enrichment**: Leverages the Jikan API (MyAnimeList) and AniList GraphQL to present detailed synopses, score tags, genres, cover images, and studio information.
+- **Advanced Metadata Enrichment**: Uses the Jikan API (MyAnimeList) and AniList GraphQL to present detailed synopses, score tags, genres, cover images, and studio information.
 - **Category Chips**: Quickly filter anime by genre with high-performance tag caches.
 
 ### High-Performance Playback
@@ -34,7 +34,7 @@ Unlike typical bloated streaming apps, Elsnime embraces a YouTube-style minimal 
 - **Quality Switching**: Select from the best-available HLS variant streams, or let the player auto-adjust based on bandwidth.
 - **Custom Gestures**: Double-tap the left/right halves of the player to step forward/backward 10 seconds with a clean seek indicator. Single-tap to play/pause with quick-press cancellation support.
 - **Orientation Control**: Enter landscape full-screen seamlessly on rotation (specifically optimized for mobile devices).
-- **Proactive Buffering Stop**: Playback, buffering, and background tasks are immediately destroyed when transitioning out of the player screen to prevent unwanted background data usage.
+- **Proactive Buffering Stop**: Playback, buffering, and background tasks stop immediately when leaving the player screen to prevent unwanted background data usage.
 
 ### History and Resume Playback
 - **Automatic Watch Tracking**: Saves episode-specific playback position, duration, and thumbnail data locally.
@@ -42,14 +42,14 @@ Unlike typical bloated streaming apps, Elsnime embraces a YouTube-style minimal 
 - **Persistent Local DB**: Full watch logs stored natively in SQLite, supporting deletion on a per-entry basis.
 
 ### Hybrid Caching & Networking
-- **Cronet Transport Stack**: Network requests are dispatched using Chrome's native Cronet transport stack rather than standard `HttpURLConnection`, delivering faster connection pooling and robust TLS fingerprint consistency.
-- **Cloudflare Auto-Bypassing**: Gracefully detects and handles Cloudflare challenges, instructing users when retry attempts are needed.
+- **Cronet transport**: Network requests use Chrome's native Cronet transport stack rather than standard `HttpURLConnection`, delivering faster connection pooling and consistent TLS fingerprinting.
+- **Cloudflare bypass**: Detects Cloudflare challenges and instructs users when retry attempts are needed.
 - **Bounded Local Cache**: Uses an SQLite-backed cache table capped at 250 entries, utilizing a background LRU (Least Recently Used) cleanup process.
 - **Scoped Pull-to-Refresh**: Re-syncs only the relevant components based on the active view (e.g. invalidating only trending chips vs. search indexes), preserving API quotas.
 
 ### External Player Support
 - **MPV Integration**: Launch streams directly into Termux’s `mpv` CLI binary or the official `mpv-android` application.
-- **Header Injection**: Seamlessly passes required browser User-Agents and HTTP Referrer streams to circumvent third-party CDN access blocks.
+- **Header Injection**: Passes required browser User-Agents and HTTP Referrer headers to bypass third-party CDN access blocks.
 
 ---
 
@@ -120,7 +120,7 @@ For a thorough look at the JavaScript-to-Java bridges and backend logic, consult
 
 ## Contributing
 
-Contributions to improve performance, add scrapers, or polish the UI are welcome! Please read our full [Contributing Guidelines](CONTRIBUTING.md) before submitting a pull request.
+Contributions to improve performance, add scrapers, or polish the UI are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines before submitting a pull request.
 
 ### Reporting Issues
 
@@ -140,11 +140,9 @@ For development guidelines, architecture details, and the JS-to-Java bridge inte
 
 ## Credits
 
-This project would not be possible without the work of the following projects and communities:
-
 | Project | Role in Elsnime |
 |-|-|
-| [ani-cli](https://github.com/pystardust/ani-cli) | The core scraping logic, AniDB URL resolution flow, and HLS playlist parsing are directly based on this excellent command-line tool by pystardust and its contributors. |
+| [ani-cli](https://github.com/pystardust/ani-cli) | Core scraping logic, AniDB URL resolution, and HLS playlist parsing. |
 | [AniDB](https://anidb.net/) | Primary anime database used for title search, episode enumeration, and stream URL extraction. |
 | [Jikan](https://jikan.moe/) | Unofficial MyAnimeList REST API providing cover art, synopses, scores, and genre metadata. |
 | [AniList](https://anilist.co/) | GraphQL API powering trending/popular discovery and supplemental metadata enrichment (genres, episodes, studio info). |
@@ -153,13 +151,13 @@ This project would not be possible without the work of the following projects an
 | [Cronet](https://chromium.googlesource.com/chromium/src/+/master/components/cronet/) | Chromium's network stack used for consistent TLS fingerprinting and Cloudflare bypass. |
 | [SQLite](https://www.sqlite.org/) | Local relational database powering watch history, app settings, and the bounded TTL cache system. |
 
-If we have inadvertently omitted your project or misattributed any work, please open an issue so we can correct it.
+If any project or contributor was omitted or misattributed, please open an issue.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GPL-3.0 License - see the [LICENSE](LICENSE) file for details.
 
 **Author:** Adrian Priza Wijaya — [coreygit1@gmail.com](mailto:coreygit1@gmail.com)
 

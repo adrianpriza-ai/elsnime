@@ -20,7 +20,7 @@ Elsnime is developed solely as an educational prototype exploring hybrid single-
 Elsnime is a client-side metadata parser and video stream resolver.
 - **No media hosting**: This application does not host, upload, store, or manage any of the audio/video streams, media, or files indexed within its interface.
 - **Scraping and Parsing**: It functions as a specialized browser engine that scrapes public text-based directories (such as AniDB) and resolves standard HLS (.m3u8) playlist files from public, third-party internet sources.
-- All media files, indexing directories, and streaming components are hosted on external servers completely independent of Elsnime and its developer. Adrian Priza Wijaya holds no control over, nor does he assume responsibility for, the content or services provided by these external platforms (including but not limited to AniDB, Jikan, and AniList).
+- All media files, indexing directories, and streaming components are hosted on external servers independent of Elsnime and its developer. Adrian Priza Wijaya holds no control over, nor is he responsible for, the content or services provided by these external platforms (including but not limited to AniDB, Jikan, and AniList).
 
 ---
 
@@ -29,7 +29,7 @@ Elsnime is a client-side metadata parser and video stream resolver.
 All trademarks, registered brands, metadata, poster art, synopsis text, and video files indexed within this software remain the intellectual property of their respective creators, publishers, and legal copyright owners.
 
 - Elsnime does not claim ownership or rights of any kind over the third-party assets parsed by its engine.
-- If you are a copyright owner or licensing agent who wishes to remove any content parsed by this app, please contact the third-party providers hosting the actual content. If you need to reach the developer directly, you may email [coreygit1@gmail.com](mailto:coreygit1@gmail.com). Once removed from the respective third-party source, the content will automatically cease to display within this client.
+- If you are a copyright owner or licensing agent who wishes to remove any content parsed by this app, please contact the third-party providers hosting the actual content. For developer inquiries, email [coreygit1@gmail.com](mailto:coreygit1@gmail.com). Once removed from the source, the content will stop displaying in this client.
 
 ---
 
