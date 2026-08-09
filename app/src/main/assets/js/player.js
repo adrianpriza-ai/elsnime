@@ -1,7 +1,42 @@
-//  Player: episode playback (Plyr/HLS), MPV, prev/next, Up next sidebar,
-//  overlay controls (skip ±10s, fullscreen), auto-rotate, stream teardown.
+//  Player: episode playback (Plyr + hls.js), MPV, prev/next, Up next sidebar,
+//  AniSkip skip button, stream teardown. Playback is driven by the Plyr
+//  control bar — there are no custom tap gestures or overlay buttons.
+//  On Android, fullscreen uses Plyr's CSS fallback mode (see initPlayer):
+//  the player fills the WebView viewport and the control bar stays in the
+//  DOM, so it overlays the video. Java is told via AndroidApi.setFullscreen
+//  to hide the system bars and rotate to landscape for the duration.
 let player;
-let hlsInstance;
+let hlsPlayer = null; // active hls.js instance (m3u8 streams only)
+
+//  Resume: saved-progress pickup when an episode is reopened. Don't offer it
+//  for the opening seconds, and treat anything within RESUME_TAIL_SECONDS of
+//  the end (or past the 0.9 ratio the episode grid labels "Watched") as done.
+const RESUME_MIN_SECONDS = 15;
+const RESUME_TAIL_SECONDS = 10;
+const RESUME_MAX_RATIO = 0.9;
+
+//  Read the saved position for an episode from watch history. Returns 0 when
+//  there is nothing worth resuming (never watched, watched from the start, or
+//  effectively finished). Called before startWebPlayer resets the row, so the
+//  position survives the overwrite.
+async function savedResumePosition(ep) {
+  try {
+    const historyMap = await getHistoryMap();
+    const h = historyMap && historyMap[ep];
+    if (!h || !Number.isFinite(h.progress) || !(h.duration > 0)) return 0;
+    if (h.progress < RESUME_MIN_SECONDS || h.progress >= h.duration - RESUME_TAIL_SECONDS
+        || h.progress / h.duration >= RESUME_MAX_RATIO) return 0;
+    return h.progress;
+  } catch (e) { return 0; }
+}
+
+//  mm:ss for the resume toast (Plyr formats its own clock internally).
+function formatTime(sec) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m + ':' + String(s).padStart(2, '0');
+}
 
 async function playEpisode(ep, index) {
   S.currentEp = { ep, index };
@@ -76,233 +111,172 @@ async function renderUpNext() {
     .join('');
 }
 
-function startWebPlayer(stream, ep) {
-  // proxy URL → web player; raw CDN URL is kept for MPV
-  loadStream(stream.url, stream.type || null);
+async function startWebPlayer(stream, ep) {
+  // proxy URL → web player; raw CDN URL is kept for MPV. The master playlist
+  // (when present) goes to hls.js so the quality menu lists every rendition.
+  // The embed referer is passed through: some CDNs gate the manifest/segment
+  // fetches on it, and the WebView sends no referer of its own.
+  // Read the saved position BEFORE the force=true reset below overwrites the
+  // history row, so reopening an episode picks up where the user left off.
+  const resumeAt = await savedResumePosition(ep);
+  loadStream(stream.url, stream.type || null, stream.master || null, stream.referer || null, resumeAt);
+  loadSkipTimes(ep); // AniSkip: fire-and-forget (no data → silent)
   // force=true: create the history row immediately instead of waiting for a flush
   saveProgress(ep, 0, 0, true);
 }
 
-function loadStream(url, type) {
-  // Destroy old instances and wipe all stale event listeners via cloneNode
-  if (hlsInstance) { try { hlsInstance.destroy(); } catch(e) {} hlsInstance = null; }
-  if (player)      { try { player.destroy();      } catch(e) {} player      = null; }
-  const oldVideo = document.getElementById('video');
-  oldVideo.replaceWith(oldVideo.cloneNode(false));
-  const v = document.getElementById('video');
+function loadStream(url, type, master, referer, resumeAt) {
+  // Tear down the previous instance. destroy() removes Plyr's UI and puts the
+  // original <video> element back into #video-wrap ready for the next init.
+  if (player) { try { player.destroy(); } catch (e) {} player = null; }
+  // Stop the previous hls.js instance so it stops downloading segments.
+  if (hlsPlayer) { try { hlsPlayer.destroy(); } catch (e) {} hlsPlayer = null; }
+  let v = document.getElementById('video');
+  // Defensive: if destroy ever left the DOM in a weird state, rebuild a
+  // pristine <video> so every load starts from the same markup. Also clear
+  // any leftover .plyr wrapper so a stale wrapper can't stack a second
+  // sized box inside #video-wrap.
+  if (!v) {
+    const wrap = document.getElementById('video-wrap');
+    wrap.querySelectorAll('.plyr').forEach(w => w.remove());
+    v = document.createElement('video');
+    v.id = 'video';
+    v.setAttribute('playsinline', '');
+    wrap.prepend(v);
+  }
+  // Drop any leftover src/poster from a previous episode before the new load.
+  try { v.removeAttribute('src'); v.removeAttribute('poster'); v.load(); } catch (e) {}
 
-  const initPlyr = () => {
+  // Cover art as the poster: the box shows it while the stream loads
+  // instead of a blank black rectangle (same image as the channel avatar).
+  const poster =
+    S.anime?.anilist?.coverImage?.extraLarge ||
+    S.anime?.anilist?.coverImage?.large ||
+    S.anime?.thumbnail || '';
+
+  const initPlayer = () => {
     player = new Plyr(v, {
-      controls: ['play-large','play','progress','current-time','mute','volume','captions','settings'],
-      settings: ['speed','loop'],
-      clickToPlay: false,          // tap behavior is handled by our own gestures
-      fullscreen: { enabled: false }, // fullscreen is our overlay + native rotation
-      keyboard: { focused: true, global: false },
+      controls: [
+        'play-large', 'play', 'progress', 'current-time', 'duration',
+        'mute', 'settings', 'fullscreen',
+      ],
+      settings: ['quality', 'speed'],
+      // forced + onChange is Plyr 3.8's documented hook for streaming sources:
+      // it routes menu picks to hls.js's level switching below.
+      quality: {
+        default: 720,
+        options: [1080, 720, 480, 360],
+        forced: true,
+        onChange: quality => {
+          if (!hlsPlayer || !hlsPlayer.levels.length) return;
+          let idx = hlsPlayer.levels.findIndex(l => l.height === quality);
+          // Level not in this stream's ladder: snap to the nearest rendition
+          // instead of falling back to auto (which may pick a lower one).
+          if (idx < 0) {
+            let best = -1, bestDiff = Infinity;
+            hlsPlayer.levels.forEach((l, i) => {
+              const d = Math.abs((l.height || 0) - quality);
+              if (d < bestDiff) { bestDiff = d; best = i; }
+            });
+            idx = best;
+          }
+          hlsPlayer.currentLevel = idx;
+        },
+      },
+      speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] },
+      poster,
+      // Fullscreen toggle enabled; the volume slider is removed (the mute
+      // button stays) to keep the control bar compact on phones.
+      // Fullscreen runs in Plyr's CSS fallback mode: the JS Fullscreen API
+      // targets the .plyr container, which Android WebView ignores (it only
+      // honors fullscreen on the <video> element, through the native custom
+      // view — which would hide the WebView and its controls). Forcing the
+      // fallback keeps the player inside the WebView with the control bar
+      // overlaid, and Java hides the bars + rotates via setFullscreen below.
+      fullscreen: { fallback: 'force' },
     });
-    // Floating skip/fullscreen buttons: visible on load, then auto-hide per
-    // our own inactivity timer (see showOverlayControls/hideOverlayControls).
-    showOverlayControls(true);
-    player.on('controlsshown',  () => showOverlayControls());
-    player.on('controlshidden', () => hideOverlayControls());
-    player.on('play',           () => showOverlayControls());
-    player.on('pause',          () => showOverlayControls(true));
-    v.ontimeupdate = () => maybePersistPlaybackProgress();
+    // Fullscreen enter/exit on Android: Plyr fires these events when the
+    // fallback class is toggled. Tell Java to hide the system bars and rotate
+    // to landscape for the duration, and restore on exit. The Plyr button
+    // state/icon is handled by Plyr itself (class-based, no WebView quirks).
+    if (window.AndroidApi && player.elements.container) {
+      const setNativeFullscreen = on => {
+        try { window.AndroidApi.setFullscreen(!!on); } catch (e) {}
+      };
+      player.elements.container.addEventListener('enterfullscreen', () => setNativeFullscreen(true));
+      player.elements.container.addEventListener('exitfullscreen', () => setNativeFullscreen(false));
+    }
+    // HLS: Plyr 3.6+ dropped its built-in hls.js support, so m3u8 playback is
+    // wired manually (same approach as the official Plyr demo). The master
+    // playlist lets hls.js pick the best level automatically; the settings >
+    // quality menu is driven by quality.onChange below.
+    const isHls = type === 'hls' || /\.m3u8/i.test(url);
+    if (isHls && window.Hls && Hls.isSupported()) {
+      // enableWorker:false keeps hls.js deterministic inside the WebView
+      // (workers from a file:// page are flaky on some devices); segment
+      // fetch is still fully async on the main thread. xhrSetup stamps the
+      // embed referer onto every CDN request, mirroring what the Java
+      // scraper sends so the CDN doesn't reject the WebView's fetches.
+      hlsPlayer = new Hls({
+        enableWorker: false,
+        xhrSetup: (xhr, hlsUrl) => {
+          if (referer) try { xhr.setRequestHeader('Referer', referer); } catch (e) {}
+        },
+      });
+      hlsPlayer.loadSource(master || url);
+      hlsPlayer.attachMedia(v);
+      // Surface fatal load failures (Plyr's own 'error' event won't fire for
+      // hls.js network errors — hls.js swallows them during retries).
+      hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
+        if (data && data.fatal) showPlayerError('Stream error. Try opening in MPV.');
+      });
+    } else if (isHls) {
+      // No hls.js (native HLS browsers like Safari): let the browser play it.
+      player.source = { type: 'video', sources: [{ src: url, type: 'application/x-mpegURL' }] };
+    } else {
+      player.source = { type: 'video', sources: [{ src: url }] }; // plain src: Plyr infers the type
+    }
+    // Resize the player box to the video's real aspect ratio once known, so
+    // there are no letterbox bars and nothing looks stretched or squished.
+    // The 16:9 CSS placeholder stays until then, keeping the box sized to the
+    // screen width instead of the video's intrinsic pixel size.
+    player.on('loadedmetadata', () => {
+      const vw = v.videoWidth, vh = v.videoHeight;
+      if (vw && vh) document.getElementById('video-wrap').style.aspectRatio = vw + ' / ' + vh;
+      // Pick up where the user left off. Seeking only works once the duration
+      // is known — earlier requests get ignored or clamped by the browser.
+      if (resumeAt > 0 && Number.isFinite(v.duration) && v.duration > 0) {
+        try { v.currentTime = Math.min(resumeAt, Math.max(0, v.duration - 1)); } catch (e) {}
+        showToast('Resuming from ' + formatTime(resumeAt), 'info');
+      }
+    });
+    player.on('error', () => {
+      // Plyr only emits 'error' for real failures (hls.js retries recoverable
+      // errors internally and they never reach the media element), so every
+      // event here is worth surfacing.
+      showPlayerError('Stream error. Try opening in MPV.');
+    });
+    v.ontimeupdate = () => {
+      maybePersistPlaybackProgress();
+      updateSkipButton(v.currentTime);
+    };
     v.onpause      = () => maybePersistPlaybackProgress(true);
     v.onended      = () => maybePersistPlaybackProgress(true);
   };
 
-  if (type === 'hls' && Hls.isSupported()) {
-    hlsInstance = new Hls({ enableWorker: false });
-    hlsInstance.loadSource(url);
-    hlsInstance.attachMedia(v);
-    // Init Plyr only after manifest is ready — fixes intermittent blank player
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, initPlyr);
-    hlsInstance.on(Hls.Events.ERROR, (_, d) => {
-      if (d.fatal) showPlayerError('Stream error. Try opening in MPV.');
-    });
-  } else {
-    v.src = url;
-    initPlyr();
-  }
-}
-
-//  Transport helpers 
-function seekBy(sec) {
-  const v = document.getElementById('video');
-  if (!v || !isFinite(v.duration) || !v.duration) return;
-  v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + sec));
-  showSeekIndicator(sec, v.currentTime);
-}
-
-function formatTime(t) {
-  if (!isFinite(t) || t < 0) t = 0;
-  const m = Math.floor(t / 60);
-  const s = Math.floor(t % 60);
-  return (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
-}
-
-let seekIndTimer = null;
-function showSeekIndicator(sec, time) {
-  const el = document.getElementById('seek-indicator');
-  if (!el) return;
-  const icon = document.getElementById('seek-indicator-icon');
-  const timeEl = document.getElementById('seek-indicator-time');
-  if (icon) icon.classList.toggle('flip', sec < 0);
-  if (timeEl) timeEl.textContent = formatTime(time);
-  el.classList.add('show');
-  clearTimeout(seekIndTimer);
-  seekIndTimer = setTimeout(() => el.classList.remove('show'), 700);
-}
-
-//  Overlay control auto-hide (YouTube-style) 
-// Buttons show while the user interacts with the video and fade out after
-// a few seconds of inactivity. Plyr's controlsshown/controlshidden events
-// alone are unreliable in the Android WebView, so a self-managed timer is
-// the source of truth (Plyr events are kept as extra hints).
-let ovHideTimer = null;
-const OV_HIDE_MS = 3000;
-
-function showOverlayControls(keep = false) {
-  const wrap = document.getElementById('video-wrap');
-  if (!wrap) return;
-  wrap.classList.add('controls-visible');
-  clearTimeout(ovHideTimer);
-  if (!keep) ovHideTimer = setTimeout(hideOverlayControls, OV_HIDE_MS);
-}
-
-function hideOverlayControls() {
-  const wrap = document.getElementById('video-wrap');
-  if (!wrap) return;
-  // Never hide while paused — the control bar is up and the user is mid-tap.
-  const v = document.getElementById('video');
-  if (v && v.paused) return;
-  // Stay in sync with Plyr's own bar: only fade once it has actually hidden
-  // (Plyr marks the container with .plyr--hide-controls), and re-check until
-  // it does. This covers WebViews where Plyr's events never fire.
-  const plyrEl = wrap.querySelector('.plyr');
-  const barVisible = plyrEl && !plyrEl.classList.contains('plyr--hide-controls');
-  if (barVisible) {
-    clearTimeout(ovHideTimer);
-    ovHideTimer = setTimeout(hideOverlayControls, 1000);
+  if (typeof Plyr !== 'function') {
+    showPlayerError('Player library failed to load.');
     return;
   }
-  wrap.classList.remove('controls-visible');
-}
-
-(function initOverlayAutoHide() {
-  const wrap = document.getElementById('video-wrap');
-  if (!wrap) return;
-  wrap.addEventListener('mousemove',  () => showOverlayControls());
-  wrap.addEventListener('touchstart', () => showOverlayControls(), { passive: true });
-  wrap.addEventListener('click',      () => showOverlayControls());
-})();
-
-//  Overlay control buttons (skip ±10s, fullscreen) 
-document.addEventListener('click', e => {
-  const t = e.target.closest ? e.target.closest('[data-action]') : null;
-  if (!t) return;
-  // Cancel any pending single-tap toggle so a control press right after a
-  // video tap doesn't also flip play/pause unexpectedly.
-  clearTimeout(singleTapTimer);
-  showOverlayControls();
-  const a = t.dataset.action;
-  if (a === 'seek-back') seekBy(-10);
-  else if (a === 'seek-fwd') seekBy(10);
-  else if (a === 'fullscreen') toggleFullscreen();
-});
-
-// Tapping anything outside the video also cancels the pending toggle.
-document.addEventListener('click', e => {
-  if (!(e.target.closest && e.target.closest('#video-wrap'))) clearTimeout(singleTapTimer);
-});
-
-//  Tap gestures: single tap toggles play, double tap seeks ±10s 
-let isTouchDevice = false;
-let lastTapT = 0;
-let lastTapX = 0;
-let singleTapTimer = null;
-
-function onPlayerTap(e) {
-  // Ignore taps on Plyr's controls and our overlay buttons.
-  if (e.target.closest && e.target.closest('.plyr__controls, .plyr__control, [data-action]')) return;
-  const x = e.clientX != null ? e.clientX : (e.changedTouches ? e.changedTouches[0].clientX : 0);
-  const now = Date.now();
-  if (now - lastTapT < 300 && Math.abs(x - lastTapX) < 60) {
-    // Double tap: seek toward the tapped half of the video
-    clearTimeout(singleTapTimer);
-    lastTapT = 0;
-    const wrap = document.getElementById('video-wrap');
-    const rect = wrap.getBoundingClientRect();
-    seekBy(x < rect.left + rect.width / 2 ? -10 : 10);
-    return;
-  }
-  lastTapT = now;
-  lastTapX = x;
-  clearTimeout(singleTapTimer);
-  singleTapTimer = setTimeout(() => { if (player) player.togglePlay(); }, 300);
-}
-
-(function initPlayerGestures() {
-  const wrap = document.getElementById('video-wrap');
-  if (!wrap) return;
-  wrap.addEventListener('touchend', e => { isTouchDevice = true; onPlayerTap(e); });
-  wrap.addEventListener('click', e => { if (!isTouchDevice) onPlayerTap(e); });
-})();
-
-//  Fullscreen: CSS overlay + native orientation (auto-flip) 
-let fsActive = false;
-let fsSensorTimer = null;
-
-function setOrientation(mode) {
-  if (window.AndroidApi && typeof window.AndroidApi.setOrientation === 'function') {
-    try { window.AndroidApi.setOrientation(mode); } catch (e) {}
-  }
-}
-
-function enterFullscreen() {
-  if (fsActive) return;
-  fsActive = true;
-  document.body.classList.add('video-fullscreen');
-  // Force landscape, then loosen to sensor so rotating back to portrait exits.
-  setOrientation('landscape');
-  clearTimeout(fsSensorTimer);
-  fsSensorTimer = setTimeout(() => { if (fsActive) setOrientation('sensor'); }, 600);
-}
-
-function exitFullscreen() {
-  if (!fsActive) return;
-  fsActive = false;
-  document.body.classList.remove('video-fullscreen');
-  setOrientation('auto');
-  clearTimeout(fsSensorTimer);
-}
-
-function toggleFullscreen() {
-  if (fsActive) exitFullscreen();
-  else enterFullscreen();
-}
-
-// Auto-flip: on phones, rotating to landscape enters fullscreen and rotating
-// back to portrait leaves it (tablets/desktops use the button only).
-const orientationQuery = window.matchMedia('(orientation: landscape)');
-const phoneQuery = window.matchMedia('(max-width: 899px)');
-function handleOrientationChange() {
-  const playerView = document.getElementById('view-player');
-  if (!playerView || !playerView.classList.contains('active')) return;
-  if (!phoneQuery.matches) return;
-  if (orientationQuery.matches) enterFullscreen();
-  else exitFullscreen();
-}
-if (orientationQuery.addEventListener) {
-  orientationQuery.addEventListener('change', handleOrientationChange);
-} else if (orientationQuery.addListener) {
-  orientationQuery.addListener(handleOrientationChange);
+  initPlayer();
 }
 
 //  Stop playback: tears down the stream so it stops downloading data 
 function stopPlayback() {
-  if (hlsInstance) { try { hlsInstance.destroy(); } catch (e) {} hlsInstance = null; }
-  if (player)      { try { player.destroy();      } catch (e) {} player      = null; }
+  // destroy() pauses and tears down the stream so it stops downloading data.
+  if (player) { try { player.destroy(); } catch (e) {} player = null; }
+  // Tear down hls.js too, otherwise its segment fetches keep running.
+  if (hlsPlayer) { try { hlsPlayer.destroy(); } catch (e) {} hlsPlayer = null; }
   const v = document.getElementById('video');
   try {
     v.pause();
@@ -311,15 +285,17 @@ function stopPlayback() {
   } catch (e) {}
   const err = document.getElementById('player-error');
   if (err) err.style.display = 'none';
-  const ind = document.getElementById('seek-indicator');
-  if (ind) ind.classList.remove('show');
-  clearTimeout(singleTapTimer);
-  clearTimeout(seekIndTimer);
-  clearTimeout(fsSensorTimer);
-  clearTimeout(ovHideTimer);
+  // Restore the 16:9 CSS placeholder so the next visit shows a proper box
+  // while its stream is being fetched.
   const wrap = document.getElementById('video-wrap');
-  if (wrap) wrap.classList.remove('controls-visible');
-  exitFullscreen();
+  if (wrap) wrap.style.aspectRatio = '';
+  // AniSkip state reset for the next episode; bump the token so any in-flight
+  // fetch for the previous episode can't write stale intervals afterwards.
+  skipLoadToken++;
+  currentSkip = [];
+  skipShownIndex = -1;
+  const skipBtn = document.getElementById('skip-btn');
+  if (skipBtn) skipBtn.hidden = true;
 }
 
 function showPlayerError(msg) {
@@ -361,3 +337,146 @@ async function playInMpv() {
     showToast('Launched in MPV', 'success');
   }
 }
+
+//  AniSkip: Crunchyroll-style skip button (intro/recap/credits) via the public
+//  AniSkip API (https://api.aniskip.com). Best-effort integration: when there
+//  is no MAL id or no community data for the episode, playback is unaffected.
+const SKIP_TYPES = ['op', 'ed', 'mixed-op', 'mixed-ed', 'recap'];
+const SKIP_LABELS = {
+  op: 'Skip Intro',
+  'mixed-op': 'Skip Mixed Intro',
+  recap: 'Skip Recap',
+  ed: 'Skip Credits',
+  'mixed-ed': 'Skip Mixed Credits',
+};
+const skipCache = new Map(); // "malId|episode" → intervals (session cache)
+let currentSkip = [];        // intervals for the current episode
+let skipShownIndex = -1;     // interval currently offered to the user
+let skipLoadToken = 0;       // guards against out-of-order episode loads
+
+function malIdForAnime() {
+  return S.anime?.anilist?.idMal || S.anime?.jikan_id || 0;
+}
+
+// Best display title for the current anime, used as the AniSkip lookup key
+// when the anime object lacks a MAL id (see loadSkipTimes).
+function animeTitleForAniskip() {
+  const al = S.anime?.anilist || {};
+  return al.title?.english || al.title?.romaji || S.anime?.title || '';
+}
+
+// Normalize the AniSkip API's results array into { type, start, end } intervals.
+function normalizeSkipIntervals(results) {
+  return Array.isArray(results)
+    ? results
+        .filter(r => r && r.interval && Number.isFinite(r.interval.startTime) && Number.isFinite(r.interval.endTime))
+        .map(r => ({ type: r.skipType || 'op', start: r.interval.startTime, end: r.interval.endTime }))
+    : [];
+}
+
+async function loadSkipTimes(ep) {
+  const token = ++skipLoadToken;
+  currentSkip = [];
+  skipShownIndex = -1;
+  const skipBtn = document.getElementById('skip-btn');
+  if (skipBtn) skipBtn.hidden = true;
+
+  if (S.settings.aniskip === 'off') return; // turned off in Settings
+
+  let malId = malIdForAnime();
+  let intervals = null;
+
+  // Android: fetch skip times through the native backend. It runs on the app's
+  // own Cronet transport (no WebView fetch/CORS variables) and resolves the MAL
+  // id from the title when the search-time AniList enrichment missed it (rate
+  // limits / cache misses), so skip data works even without anilist.idMal.
+  if (window.AndroidApi) {
+    try {
+      const q = 'title=' + encodeURIComponent(animeTitleForAniskip()) +
+        '&episode=' + encodeURIComponent(ep);
+      const data = await api.get('/api/aniskip?' + q);
+      // Only trust the native path when it actually resolved a MAL id;
+      // otherwise fall through to the direct call with the frontend's id.
+      if (data && !data.error && data.mal_id) {
+        malId = data.mal_id;
+        intervals = normalizeSkipIntervals(data.results);
+      }
+    } catch (e) { /* fall back to the direct API call below */ }
+  }
+
+  const key = (malId || '0') + '|' + ep;
+  if (skipCache.has(key)) {
+    if (token === skipLoadToken) currentSkip = skipCache.get(key);
+    return;
+  }
+
+  // Dev-mode browsers (no AndroidApi), native failure, or native couldn't find
+  // a MAL id: query the public AniSkip API straight from the WebView. Needs a
+  // MAL id to do so.
+  if (intervals == null) {
+    if (!malId) return;
+    const num = parseFloat(ep);
+    const epNum = Number.isFinite(num) ? num : ep;
+    try {
+      const params = new URLSearchParams();
+      SKIP_TYPES.forEach(t => params.append('types', t));
+      params.append('episodeLength', '0');
+      const res = await fetch(
+        `https://api.aniskip.com/v2/skip-times/${malId}/${encodeURIComponent(epNum)}?${params}`,
+        { headers: { Accept: 'application/json' } }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      intervals = normalizeSkipIntervals(data.results);
+    } catch (e) { return; /* offline or blocked — keep playback unaffected */ }
+  }
+
+  skipCache.set(key, intervals);
+  if (token === skipLoadToken) currentSkip = intervals;
+}
+
+// Called on every timeupdate: show the skip pill while the current time is
+// inside a known interval, hide it otherwise.
+function updateSkipButton(t) {
+  const btn = document.getElementById('skip-btn');
+  if (!btn) return;
+  // Toggled off in Settings while playing → hide the button immediately.
+  if (S.settings.aniskip === 'off') {
+    skipShownIndex = -1;
+    btn.hidden = true;
+    return;
+  }
+  const idx = currentSkip.findIndex(s => t >= s.start && t < s.end);
+  if (idx === skipShownIndex) return;
+  skipShownIndex = idx;
+  if (idx >= 0) {
+    document.getElementById('skip-btn-label').textContent =
+      SKIP_LABELS[currentSkip[idx].type] || 'Skip';
+    btn.hidden = false;
+  } else {
+    btn.hidden = true;
+  }
+}
+
+function skipCurrentInterval() {
+  const s = currentSkip[skipShownIndex];
+  if (!s) return;
+  const v = document.getElementById('video');
+  // Land just past the interval end so the next timeupdate doesn't re-match it
+  // and flash the button back on screen.
+  if (v && Number.isFinite(v.duration)) {
+    v.currentTime = Math.max(0, Math.min(v.duration, s.end + 0.5));
+  }
+  const btn = document.getElementById('skip-btn');
+  if (btn) btn.hidden = true;
+  skipShownIndex = -1;
+}
+
+(function initSkipButton() {
+  const btn = document.getElementById('skip-btn');
+  if (!btn) return;
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    skipCurrentInterval();
+  });
+})();

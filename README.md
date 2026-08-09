@@ -1,55 +1,61 @@
-# Elsnime
+<div align=center>
 
-[![Android-Lollipop](https://img.shields.io/badge/Android-5.0%2B%20%28API%2021%29-green.svg)](https://developer.android.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Frontend-SPA](https://img.shields.io/badge/Frontend-Vanilla%20JS-blue.svg)](app/src/main/assets/ui.html)
-[![Backend-Java](https://img.shields.io/badge/Backend-Java%20%2F%20SQLite-orange.svg)](app/src/main/java/com/elsnime)
+![Elsnime](https://banner-img.vercel.app/api/banner?w=500&h=200&r=20&bg=transparent&image=https%253A%252F%252Fadrianpriza-ai.github.io%252Fic_launcher.png%2C20%2C40%2C130%2C130%2C0%2Ctrue&text=Elsnime%2C300%2C110%2C70%2C%23ffffff%2C0%2Cmiddle%2CArial%2Ctrue)
 
-Elsnime is a lightweight, privacy-focused anime streaming client for Android. It wraps a responsive vanilla CSS/JS frontend inside an Android WebView, backed by a native Java scraping engine and an SQLite data access layer.
+[![Android](https://img.shields.io/badge/Android%205.0%2B%20%7C%20API%2021-3DDC84?style=for-the-badge\&logo=android\&logoColor=white)](https://developer.android.com)
+[![Vanilla JavaScript](https://img.shields.io/badge/Vanilla%20JavaScript-F7DF1E?style=for-the-badge\&logo=javascript\&logoColor=black)](app/src/main/assets/ui.html)
+[![Java / SQLite](https://img.shields.io/badge/Java%20%2F%20SQLite-white?style=for-the-badge\&logo=openjdk\&logoColor=black)](app/src/main/java/com/elsnime)
+[![GPL-3.0](https://img.shields.io/badge/GPL--3.0-white?style=for-the-badge\&logo=gnu\&logoColor=red)](LICENSE)
+
+</div>
+
+Elsnime is an anime streaming client for Android. It wraps a responsive vanilla CSS/JS frontend inside a WebView, backed by a native Java scraping engine and an SQLite data layer.
 
 There are no user accounts, no telemetry, no tracking, and no intrusive permission requests.
 
----
-
-## Core Design Philosophy
-
-Unlike typical bloated streaming apps, Elsnime embraces a YouTube-style minimal aesthetic:
-- **AMOLED-friendly dark mode** as the primary theme, with options for light and automatic system tracking.
-- **Custom HLS.js + Plyr video player** featuring customized double-tap gestures to seek, smooth system orientation overrides, and absolute backdrop transparency.
-- **Local data management**: Everything is stored in local SQLite databases.
-- **Aggressive local cache** with TTL-based expiration and smart, scoped cache-invalidation (via pull-to-refresh) to stay lightweight and avoid rate limits.
+Elsnime keeps a minimal dark UI:
+- Plyr player with AniSkip-powered skip buttons for intros, recaps, and credits.
+- All data stored locally in SQLite databases.
+- Aggressive cache with TTL expiration and scoped invalidation (via pull-to-refresh) to respect API rate limits.
 
 ---
 
 ## Features
 
 ### Search and Discovery
-- **Fuzzy Search**: Instant, query-based search against AniDB browse pages.
-- **Smart Disambiguation**: Resolves title overlaps and presents alternative matching choices when necessary.
-- **Advanced Metadata Enrichment**: Uses the Jikan API (MyAnimeList) and AniList GraphQL to present detailed synopses, score tags, genres, cover images, and studio information.
-- **Category Chips**: Quickly filter anime by genre with high-performance tag caches.
 
-### High-Performance Playback
-- **Inline HLS Player**: Custom built-in media controls wrapping Plyr and HLS.js.
-- **Quality Switching**: Select from the best-available HLS variant streams, or let the player auto-adjust based on bandwidth.
-- **Custom Gestures**: Double-tap the left/right halves of the player to step forward/backward 10 seconds with a clean seek indicator. Single-tap to play/pause with quick-press cancellation support.
-- **Orientation Control**: Enter landscape full-screen seamlessly on rotation (specifically optimized for mobile devices).
-- **Proactive Buffering Stop**: Playback, buffering, and background tasks stop immediately when leaving the player screen to prevent unwanted background data usage.
+- **Fuzzy Search**: Instant, query-based search against AniDB browse pages.
+- **Smart Disambiguation**: Resolves title overlaps and offers alternative matches.
+- **Metadata Enrichment**: Pulls synopses, score tags, genres, cover images, and studio info from the Jikan API (MyAnimeList) and AniList GraphQL.
+- **Category Chips**: Filter anime by genre with cached tag lists.
+
+### Playback
+
+- **Inline HLS Player**: Plyr with hls.js for adaptive HLS playback.
+- **Quality Switching**: Choose from available HLS variants, or let the player adjust to bandwidth.
+- **Player UI**: Tapping the video never pauses playback; controls are driven entirely by the Plyr control bar (play, progress, quality & speed menus, fullscreen).
+- **Fullscreen**: The fullscreen button fills the player across the whole screen inside the WebView (Plyr fallback mode), keeping the control bar overlaid, hiding the status/navigation bars, and rotating to landscape. Leaving fullscreen restores the bars and orientation; outside fullscreen the system bars stay visible.
+- **Skip Intros & Recaps**: Community-sourced skip times from [AniSkip](https://api.aniskip.com/) show a "Skip Intro / Recap / Credits" button during openings or endings; tap to jump past them. Disable in Settings.
+- **Background Buffering Stops**: Playback, buffering, and background tasks halt immediately when leaving the player screen.
 
 ### History and Resume Playback
-- **Automatic Watch Tracking**: Saves episode-specific playback position, duration, and thumbnail data locally.
-- **Resume Hub**: Quick-access row on the home dashboard to continue exactly where you left off.
-- **Persistent Local DB**: Full watch logs stored natively in SQLite, supporting deletion on a per-entry basis.
 
-### Hybrid Caching & Networking
-- **Cronet transport**: Network requests use Chrome's native Cronet transport stack rather than standard `HttpURLConnection`, delivering faster connection pooling and consistent TLS fingerprinting.
-- **Cloudflare bypass**: Detects Cloudflare challenges and instructs users when retry attempts are needed.
-- **Bounded Local Cache**: Uses an SQLite-backed cache table capped at 250 entries, utilizing a background LRU (Least Recently Used) cleanup process.
-- **Scoped Pull-to-Refresh**: Re-syncs only the relevant components based on the active view (e.g. invalidating only trending chips vs. search indexes), preserving API quotas.
+- Saves episode-specific playback position, duration, and thumbnail data locally.
+- Quick-access row on the home dashboard to continue where you left off.
+- Reopening an episode resumes from the saved position (with a "Resuming from m:ss" notice); episodes already marked as watched start from the beginning.
+- Full watch logs stored in SQLite; delete per entry.
+
+### Networking
+
+- **Cronet transport**: Uses Chrome's native Cronet stack instead of `HttpURLConnection`, for faster connection pooling and consistent TLS fingerprinting.
+- **Cloudflare bypass**: Detects Cloudflare challenges and prompts users to retry.
+- **Bounded Local Cache**: SQLite-backed cache table capped at 250 entries, with background LRU cleanup.
+- **Scoped Pull-to-Refresh**: Re-syncs only the active view (e.g. trending chips, not search indexes).
 
 ### External Player Support
-- **MPV Integration**: Launch streams directly into Termux’s `mpv` CLI binary or the official `mpv-android` application.
-- **Header Injection**: Passes required browser User-Agents and HTTP Referrer headers to bypass third-party CDN access blocks.
+
+- **MPV Integration**: Launch streams into Termux's `mpv` CLI or the official `mpv-android` app.
+- **Header Injection**: Passes browser User-Agent and Referrer headers to bypass third-party CDN blocks.
 
 ---
 
@@ -71,20 +77,22 @@ cd elsnime
 ./gradlew installDebug
 ```
 
-Compiled APK artifacts will be output to:
+Compiled APKs land in:
 `app/build/outputs/apk/debug/`
 - `app-arm64-v8a-debug.apk` (Typical modern devices)
 - `app-armeabi-v7a-debug.apk` (Older mobile devices)
 - `app-x86_64-debug.apk` / `app-x86-debug.apk` (Android Emulators)
 
 ### Manual Installation
-Simply transfer the target `.apk` file to your Android phone or tablet, open it with a file manager, and authorize "Install from unknown sources" if prompted by your device settings.
+
+Transfer the target `.apk` file to your Android phone or tablet, open it with a file manager, and authorize "Install from unknown sources" if prompted by your device settings.
 
 ### Downloading Pre-built Releases
+
 Pre-built APKs are available on the [Releases](https://github.com/adrianpriza-ai/elsnime/releases) page. Download the APK matching your device's CPU architecture:
 
 | Architecture | Best For |
-|-------------|----------|
+|-|-|
 | `arm64-v8a` | Most modern Android phones and tablets |
 | `armeabi-v7a` | Older 32-bit Android devices |
 | `x86_64` | 64-bit Android emulators |
@@ -146,8 +154,9 @@ For development guidelines, architecture details, and the JS-to-Java bridge inte
 | [AniDB](https://anidb.net/) | Primary anime database used for title search, episode enumeration, and stream URL extraction. |
 | [Jikan](https://jikan.moe/) | Unofficial MyAnimeList REST API providing cover art, synopses, scores, and genre metadata. |
 | [AniList](https://anilist.co/) | GraphQL API powering trending/popular discovery and supplemental metadata enrichment (genres, episodes, studio info). |
-| [Plyr](https://plyr.io/) | Lightweight, accessible, and customizable HTML5 media player built into the in-app player. |
-| [HLS.js](https://github.com/video-dev/hls.js/) | JavaScript HTTP Live Streaming client enabling in-browser playback of HLS streams. |
+| [Plyr](https://plyr.io/) | Open-source HTML5 media player driving the in-app player UI. |
+| [hls.js](https://github.com/video-dev/hls.js/) | HLS (m3u8) playback engine powering adaptive streaming in the player. |
+| [AniSkip](https://api.aniskip.com/) | Community-sourced opening, recap, and ending skip times powering the player's skip buttons. |
 | [Cronet](https://chromium.googlesource.com/chromium/src/+/master/components/cronet/) | Chromium's network stack used for consistent TLS fingerprinting and Cloudflare bypass. |
 | [SQLite](https://www.sqlite.org/) | Local relational database powering watch history, app settings, and the bounded TTL cache system. |
 
@@ -162,4 +171,5 @@ This project is licensed under the GPL-3.0 License - see the [LICENSE](LICENSE) 
 **Author:** Adrian Priza Wijaya — [coreygit1@gmail.com](mailto:coreygit1@gmail.com)
 
 ### Disclaimer
+
 Elsnime is purely a metadata scraper and stream resolver. It does not host, upload, or manage any of the audio/video streams indexed within the application. Adrian Priza Wijaya is responsible only for the Elsnime application itself and not for any third-party services, APIs, or streaming platforms it interacts with. Please read the full legal policy in [DISCLAIMER.md](DISCLAIMER.md) before using or distributing this software.

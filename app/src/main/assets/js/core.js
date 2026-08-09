@@ -23,10 +23,11 @@ function showToast(message, type = 'info') {
 }
 
 //  Confirmation dialog 
-// window.confirm() is a silent no-op inside the Android WebView (the app sets
-// no WebChromeClient, so the call just returns false), which made the settings
-// Clear-history / Reset buttons do nothing. Destructive actions now use this
-// in-app dialog instead — it works identically in the WebView and in dev.
+// window.confirm() is a silent no-op inside the Android WebView (the app's
+// WebChromeClient cancels JS dialogs, so the call just returns false), which
+// made the settings Clear-history / Reset buttons do nothing. Destructive
+// actions now use this in-app dialog instead — it works identically in the
+// WebView and in dev.
 let confirmResolve = null;
 let confirmPrevFocus = null;
 const CONFIRM_ICONS = {
@@ -244,6 +245,7 @@ const DEFAULT_SETTINGS = {
   theme: 'auto',
   player: 'web',
   sub_lang: 'sub',
+  aniskip: 'on',
   performance_mode: 'auto',
   hw_accel: false,
 };
@@ -260,6 +262,7 @@ async function loadSettings() {
   setPillValue('pill-theme',  S.settings.theme    || DEFAULT_SETTINGS.theme);
   setPillValue('pill-player', S.settings.player   || DEFAULT_SETTINGS.player);
   setPillValue('pill-lang',   S.settings.sub_lang || DEFAULT_SETTINGS.sub_lang);
+  setPillValue('pill-aniskip', S.settings.aniskip || DEFAULT_SETTINGS.aniskip);
 
   applyTheme(S.settings.theme || DEFAULT_SETTINGS.theme);
   initPillSliders();
@@ -379,6 +382,7 @@ async function resetSettings() {
   setPillValue('pill-theme',  DEFAULT_SETTINGS.theme);
   setPillValue('pill-player', DEFAULT_SETTINGS.player);
   setPillValue('pill-lang',   DEFAULT_SETTINGS.sub_lang);
+  setPillValue('pill-aniskip', DEFAULT_SETTINGS.aniskip);
   applyTheme(DEFAULT_SETTINGS.theme);
   refreshPillSliders();
   showToast('Settings reset', 'success');

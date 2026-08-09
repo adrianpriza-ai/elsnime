@@ -2,7 +2,7 @@
    Loaded after detail.css / player.css: overrides and extends them so the
    anime info page and the player look like a YouTube watch page. */
 
-/* ---------- Detail hero: banner + overlaid title ---------- */
+/* Detail hero: banner + overlaid title */
 
 .detail-hero {
 	position: relative;
@@ -114,7 +114,7 @@
 	color: var(--accent-primary);
 }
 
-/* ---------- Detail actions: Play + SUB/DUB pill toggle ---------- */
+/* Detail actions: Play + SUB/DUB pill toggle */
 
 .detail-actions {
 	display: flex;
@@ -197,7 +197,7 @@
 	font-size: 12px;
 }
 
-/* ---------- Description box (YouTube style) ---------- */
+/* Description box */
 
 /* Description is plain text — no card, no border. */
 .yt-desc-box {
@@ -252,7 +252,7 @@
 	color: var(--text-primary);
 }
 
-/* ---------- Episode rows (YouTube "up next" suggestion style) ---------- */
+/* Episode rows */
 
 .upnext-head {
 	display: flex;
@@ -408,27 +408,52 @@
 	border-radius: var(--radius-sm);
 }
 
-/* ---------- Watch page (player) ---------- */
+/* Watch page (player) */
 
 #video-wrap {
-	width: 100%;
+	/* Width is deliberately NOT set: as a block element it fills its
+	   container, and the full-bleed rules below rely on width:auto so the
+	   negative margins cancel the view padding symmetrically. With an
+	   explicit width:100%, the CSS box model (over-constrained block) would
+	   discard the negative margin-right, leaving a gap on the right edge. */
 	max-width: none;
 	position: relative;
+	/* 16:9 placeholder while the stream loads; player.js swaps it for the
+	   video's real aspect ratio on loadedmetadata, so the box always tracks
+	   the screen width instead of the video's intrinsic pixel size. */
 	aspect-ratio: 16 / 9;
 	background: #000;
 	border-radius: var(--radius-lg);
-	overflow: hidden;
+	/* No overflow:hidden here — it would clip Plyr's settings/speed menus
+	   that pop up above the control bar on short videos. The rounded
+	   corners are applied to the .plyr box below instead. */
 }
 
-#video-wrap video,
+/* Plyr fills the wrapper; the wrapper's aspect-ratio (16:9 placeholder,
+   then the video's real ratio set by player.js) sizes the box. object-fit
+   contain letterboxes a rare mismatched source instead of stretching it.
+   The .plyr__video-wrapper needs the explicit height so the video's
+   height:100% resolves against the wrap's aspect-ratio. */
 #video-wrap .plyr,
 #video-wrap .plyr__video-wrapper {
 	width: 100%;
 	height: 100%;
+	border-radius: inherit;
 }
 
-#video-wrap video {
+#video-wrap .plyr video {
+	width: 100%;
+	height: 100%;
 	object-fit: contain;
+	border-radius: inherit;
+}
+
+/* Plyr's poster is a background-image div; round it so it matches the box
+   corners (the box has no overflow clip, or the menus would be cut off). */
+#video-wrap .plyr__poster {
+	width: 100%;
+	height: 100%;
+	border-radius: inherit;
 }
 
 #player-title {
@@ -553,7 +578,7 @@
 	border: 1px solid var(--danger-strong);
 }
 
-/* ---------- Two-column layout (desktop) ---------- */
+/* Two-column layout (desktop) */
 
 @media (min-width: 900px) {
 	.detail-cols,
@@ -562,6 +587,30 @@
 		grid-template-columns: minmax(0, 1fr) 360px;
 		gap: 28px;
 		align-items: start;
+	}
+
+	/* Full-bleed player row: cancel the view's horizontal padding so the
+	   video uses the whole screen width (edge-to-edge) with the Up next
+	   sidebar still pinned to the right in its 360px column. The view
+	   padding is 36px here and 48px at >=1024px (responsive.css) — the
+	   negative margins below match, and #main has overflow-x:hidden so
+	   the bleed never causes horizontal scrolling. */
+	.watch-cols {
+		margin: 0 -36px;
+	}
+
+	/* The video box is now flush with the screen edge; square the corners
+	   the same way the mobile full-bleed rule does. */
+	#view-player #video-wrap {
+		border-radius: 0;
+	}
+
+	/* The row bleeds edge-to-edge, so push the text below the video (title,
+	   channel, actions) back to the app gutter — only the video is flush,
+	   matching the mobile look. */
+	.watch-main > :not(#video-wrap) {
+		padding-left: 36px;
+		padding-right: 36px;
 	}
 
 	.detail-side,
@@ -580,7 +629,7 @@
 	}
 }
 
-/* ---------- Mobile: full-bleed player, compact hero ---------- */
+/* Mobile: full-bleed player, compact hero */
 
 @media (max-width: 699px) {
 	#video-wrap {
@@ -633,5 +682,29 @@
 
 	.upnext-tag {
 		display: none;
+	}
+}
+
+/* Tablet portrait / wide phones (no sidebar yet): the video goes
+   full-bleed like on mobile instead of sitting inset in the view
+   padding (36px each side at this width). */
+@media (min-width: 700px) and (max-width: 899px) {
+	#video-wrap {
+		margin: 0 -36px;
+		border-radius: 0;
+	}
+}
+
+/* At >=1024px the view padding grows to 48px (responsive.css); re-bleed
+   the player row (and the text gutter) to match so the video keeps using
+   the full width. */
+@media (min-width: 1024px) {
+	.watch-cols {
+		margin: 0 -48px;
+	}
+
+	.watch-main > :not(#video-wrap) {
+		padding-left: 48px;
+		padding-right: 48px;
 	}
 }

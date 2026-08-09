@@ -99,12 +99,15 @@ public final class AniDbScraper {
         if(url.isEmpty())return error("No video quality found");
         // "referer" is the embed page the manifest was fetched with; mpv needs
         // it (plus a browser UA) to load the CDN playlist outside the WebView.
-        return new JSONObject().put("url",url).put("raw",url).put("type","hls").put("referer",embed);
+        // "master" is the full multi-quality master playlist: the web player
+        // hands it to hls.js so the settings > quality menu lists every
+        // rendition (mpv keeps the pre-resolved best-variant "url").
+        return new JSONObject().put("url",url).put("raw",url).put("master",master).put("type","hls").put("referer",embed);
     }
 
     public JSONArray trending() throws Exception { return cachedArray("trending",TTL_DAY,this::trendingUncached); }
     private JSONArray trendingUncached() throws Exception {
-        String gql="query{Page(page:1,perPage:24){media(type:ANIME,sort:TRENDING_DESC,status_not:NOT_YET_RELEASED){id format synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}}";
+        String gql="query{Page(page:1,perPage:24){media(type:ANIME,sort:TRENDING_DESC,status_not:NOT_YET_RELEASED){id idMal format synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}}";
         JSONArray media=postJson(ANILIST,new JSONObject().put("query",gql)).optJSONObject("data").optJSONObject("Page").optJSONArray("media");
         JSONArray out=new JSONArray();if(media==null)return out;
         for(int i=0;i<media.length();i++){JSONObject m=media.optJSONObject(i);if(m==null)continue;JSONObject t=m.optJSONObject("title");String title=t==null?"":t.optString("english",t.optString("romaji"));out.put(new JSONObject().put("id",JSONObject.NULL).put("title",title).put("thumbnail",m.optJSONObject("coverImage").optString("large")).put("score",m.opt("averageScore")).put("anilist",m));}
@@ -122,7 +125,7 @@ public final class AniDbScraper {
 
     public JSONArray searchTag(String tag) throws Exception {
         return cachedArray("tag|"+tag,TTL_DAY,()->{
-            String gql="query($genre:String){Page(page:1,perPage:24){media(type:ANIME,genre:$genre,sort:POPULARITY_DESC){id format synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}}";
+            String gql="query($genre:String){Page(page:1,perPage:24){media(type:ANIME,genre:$genre,sort:POPULARITY_DESC){id idMal format synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}}";
             JSONArray media=postJson(ANILIST,new JSONObject().put("query",gql).put("variables",new JSONObject().put("genre",tag))).optJSONObject("data").optJSONObject("Page").optJSONArray("media");
             JSONArray out=new JSONArray();if(media!=null)for(int i=0;i<media.length();i++){JSONObject m=media.optJSONObject(i);if(m==null)continue;JSONObject t=m.optJSONObject("title");String title=t==null?"":t.optString("english",t.optString("romaji"));out.put(new JSONObject().put("id",JSONObject.NULL).put("title",title).put("thumbnail",m.optJSONObject("coverImage").optString("large")).put("score",m.opt("averageScore")).put("anilist",m));}return out;
         });
@@ -133,8 +136,31 @@ public final class AniDbScraper {
         if(data!=null)for(int i=0;i<data.length();i++){JSONObject x=data.optJSONObject(i);if(x!=null)out.put(new JSONObject().put("id",x.optInt("mal_id")).put("name",x.optString("name")).put("count",x.optInt("count")));}return out;
     }); }
 
+    /** AniSkip: resolve the show's MAL id (via AniList, cached) and fetch the
+     *  community skip times for an episode over the app's own transport, so
+     *  the player never depends on a WebView fetch or on the search-time
+     *  enrichment having attached anilist.idMal. Episodes with a resolved MAL
+     *  id but no community data are cached so they aren't re-queried; a failed
+     *  lookup (mal_id 0) is returned as an error so cachedObject never caches
+     *  it — a transient AniList failure must not lock the episode into
+     *  emptiness for an hour. */
+    public JSONObject skipTimes(String title, String episode) throws Exception {
+        return cachedObject("aniskip|"+title+"|"+episode,TTL_HOUR,()->{
+            int malId=0;
+            try{JSONObject media=aniList(title);malId=media==null?0:media.optInt("idMal",0);}catch(Exception ignored){}
+            JSONObject out=new JSONObject().put("mal_id",malId);
+            if(malId<=0)return out.put("error","could not resolve MAL id").put("results",new JSONArray());
+            String url="https://api.aniskip.com/v2/skip-times/"+malId+"/"+URLEncoder.encode(episode,"UTF-8")
+                +"?types=op&types=ed&types=mixed-op&types=mixed-ed&types=recap&episodeLength=0";
+            try{JSONObject data=json(get(url,"https://api.aniskip.com","https://api.aniskip.com"));
+                out.put("results",data.optJSONArray("results")==null?new JSONArray():data.optJSONArray("results"));}
+            catch(Exception ignored){out.put("results",new JSONArray());}
+            return out;
+        });
+    }
+
     private JSONArray enrich(JSONArray input,int limit) throws Exception { JSONArray out=new JSONArray();for(int i=0;i<input.length()&&i<limit;i++){JSONObject item=input.optJSONObject(i);if(item==null)continue;try{item.put("anilist",aniList(item.optString("title")));}catch(Exception ignored){}out.put(item);}return out; }
-    private JSONObject aniList(String title) throws Exception {String q="query($search:String){Media(search:$search,type:ANIME){id format synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}";return postJson(ANILIST,new JSONObject().put("query",q).put("variables",new JSONObject().put("search",title))).optJSONObject("data").optJSONObject("Media");}
+    private JSONObject aniList(String title) throws Exception {String q="query($search:String){Media(search:$search,type:ANIME){id idMal format synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}";return postJson(ANILIST,new JSONObject().put("query",q).put("variables",new JSONObject().put("search",title))).optJSONObject("data").optJSONObject("Media");}
     private JSONObject jikan(String path) throws Exception{return json(get(JIKAN+path,"https://jikan.moe/","https://jikan.moe"));}
     private JSONObject normalizeJikan(JSONObject entry)throws Exception{JSONObject d=entry.optJSONObject("data");if(d==null)d=entry;JSONObject images=d.optJSONObject("images"),jpg=images==null?null:images.optJSONObject("jpg"),webp=images==null?null:images.optJSONObject("webp");String title=d.optString("title");if(title.isEmpty())title=d.optString("title_english",d.optString("title_japanese"));JSONObject titles=new JSONObject().put("english",d.optString("title_english",title)).put("romaji",title);JSONObject cover=new JSONObject().put("large",jpg==null?"":jpg.optString("large_image_url",jpg.optString("image_url"))).put("extraLarge",webp==null?"":webp.optString("large_image_url",webp.optString("image_url")));JSONArray genres=new JSONArray(),gs=d.optJSONArray("genres");if(gs!=null)for(int i=0;i<gs.length();i++)genres.put(gs.optJSONObject(i).optString("name"));JSONObject al=new JSONObject().put("title",titles).put("coverImage",cover).put("averageScore",d.optDouble("score")*10).put("episodes",d.opt("episodes")).put("status",d.optString("status")).put("seasonYear",d.opt("year")).put("description",d.optString("synopsis")).put("genres",genres);return new JSONObject().put("id",JSONObject.NULL).put("jikan_id",d.optInt("mal_id")).put("title",title).put("thumbnail",webp==null?"":webp.optString("image_url")).put("score",d.opt("score")).put("anilist",al);}
 

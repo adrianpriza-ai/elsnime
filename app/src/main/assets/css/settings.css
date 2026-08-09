@@ -1,6 +1,7 @@
 /* settings.css — Android-style settings list
-   Labels sit beside their control; each group is a rounded surface
-   with flat rows (no separators), like the modern Settings app. */
+   Labels sit beside their control in flat rows (no separators). The
+   rounded card/box container was removed, so the options sit directly
+   on the page background. */
 
 .settings-shell {
 	max-width: 640px;
@@ -17,9 +18,10 @@
 }
 
 .settings-list {
-	background: var(--surface);
-	border-radius: var(--radius-md);
-	overflow: hidden;
+	/* No card/box container: rows render directly on the page background. */
+	background: transparent;
+	border-radius: 0;
+	overflow: visible;
 }
 
 .settings-row {

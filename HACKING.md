@@ -6,19 +6,19 @@ This document covers Elsnime's internals: the hybrid architecture, platform inte
 
 ## Architecture Overview
 
-Elsnime is structured as a **hybrid application**:
+Elsnime runs a vanilla JS frontend inside an Android WebView, backed by native Java classes.
 
 ```
 +-------------------------------------------------------------+
 |                     VANILLA JS FRONTEND                     |
 | - HTML5 views (ui.html)                                     |
 | - View Routing & Controllers (js/core.js, js/player.js...)  |
-| - Plyr + HLS.js HTML5 Video Player                          |
+| - Plyr HTML5 Video Player (HLS via hls.js)                  |
 +-------------------------------------------------------------+
-                              │
-          window.AndroidApi   │   window.__androidResponse
-          (JavascriptBridge)  │   (JS evaluation)
-                              ▼
+                               │
+           window.AndroidApi   │   window.__androidResponse
+           (JavascriptBridge)  │   (JS evaluation)
+                               ▼
 +-------------------------------------------------------------+
 |                      NATIVE JAVA BACKEND                    |
 | - MainActivity (Host, configuration, orientation overrides) |
@@ -28,14 +28,13 @@ Elsnime is structured as a **hybrid application**:
 +-------------------------------------------------------------+
 ```
 
-1. **Frontend (View Layer)**: A vanilla HTML5 SPA running in a performance-tuned `WebView`. Resides entirely within `app/src/main/assets/`.
-2. **Backend (Data Layer)**: Native Android classes running on a background thread pool, using an embedded SQLite database (`HistoryDb`) for watch history and bounded metadata caching.
+Frontend lives in `app/src/main/assets/`. Backend classes run on a background thread pool with an embedded SQLite database (`HistoryDb`) for watch history and bounded metadata caching.
 
 ---
 
 ## The JS-to-Java Communication Bridge
 
-Communication is fully asynchronous to avoid blocking the UI. Scraping and DB accesses run on a background thread.
+Communication is asynchronous; scraping and DB accesses run on a background thread.
 
 ### 1. Frontend-to-Backend (`AndroidApi.request`)
 
@@ -80,11 +79,13 @@ public void request(final String id, final String method, final String path, fin
 }
 ```
 
+Other bridge methods on `AndroidApi` (`MainActivity.java`): `systemTheme()` (real device theme), `setFullscreen(on)` (fullscreen immersive bars + landscape rotation), `saveProgress(...)`, `refreshCache(prefixes)`, `mpvStatus(id)`, and `playInMpv(...)`.
+
 ---
 
 ## Caching System & SQLite Storage
 
-Elsnime implements an aggressive caching strategy using an **SQLite SQLiteOpenHelper** (`HistoryDb` in `MainActivity.java`) to stay within API rate limits on Jikan and AniList, and to avoid hitting Cloudflare on AniDB repeatedly.
+Elsnime uses an **SQLite SQLiteOpenHelper** (`HistoryDb` in `MainActivity.java`) to stay within API rate limits on Jikan and AniList, and to avoid hitting Cloudflare on AniDB repeatedly.
 
 ### Cache Mechanics (DB Schema Version 3)
 * **Table structure**: `cache(key TEXT PRIMARY KEY, value TEXT NOT NULL, expires_at INTEGER NOT NULL, last_updated INTEGER NOT NULL DEFAULT 0)`
@@ -112,44 +113,43 @@ void cacheClearPrefix(String prefix) {
 
 ## Custom Playback, Gestures & System Overrides
 
-Several system-level interventions between `js/player.js` and `MainActivity.java` provide a native-like streaming experience.
+Several system-level interventions between `js/player.js` and `MainActivity.java` shape the playback experience.
 
 ### 1. Native Rotation Override
 
-Standard Android orientation changes recreate the `Activity` from scratch, which would reset the WebView state and interrupt video streams.
-* To prevent this, the `AndroidManifest.xml` explicitly defines:
+Standard Android orientation changes recreate the `Activity` from scratch, resetting the WebView state and interrupting video streams.
+* The `AndroidManifest.xml` explicitly defines:
   ```xml
   android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode"
   ```
-* This routes orientation changes to `onConfigurationChanged` in `MainActivity.java`, allowing JS to re-evaluate the viewport and push custom layout updates safely.
+* This routes orientation changes to `onConfigurationChanged` in `MainActivity.java`, letting JS re-evaluate the viewport and push custom layout updates.
+* Entering fullscreen explicitly rotates the activity to landscape (`setRequestedOrientation(SCREEN_ORIENTATION_SENSOR_LANDSCAPE)` inside `AndroidApi.setFullscreen`); leaving restores `SCREEN_ORIENTATION_UNSPECIFIED`. Because `configChanges` is set, neither rotation ever recreates the activity or interrupts playback.
 
-### 2. Auto-Rotate Fullscreen Loop
-On phone-sized devices (`max-width: 899px`), landscape rotation triggers landscape fullscreen playback, and returning to portrait exits. The JS side calls `AndroidApi.setOrientation(mode)` on the bridge:
-* `"landscape"`: Locks orientation into sensor landscape.
-* `"sensor"`: Shifts back to full sensor tracking (allowing the physical rotation back to portrait to be detected).
-* `"auto"`: Resets layout tracking back to the user's default screen orientation.
+### 2. Control-Bar-Driven Playback & Fullscreen
+Playback is driven entirely by the Plyr control bar (no custom tap gestures or overlay buttons). The player box uses a 16:9 CSS placeholder on `#video-wrap` that `js/player.js` replaces with the video's real aspect ratio once metadata loads.
 
-### 3. Gesture Seeking
-Plyr's default tap handles are disabled (`clickToPlay: false`). Custom handlers in `js/player.js` handle single-tap play/pause and double-tap seeking.
-* Double-tapping the left 50% of the viewport triggers a rewind (`seek(-10)`).
-* Double-tapping the right 50% of the viewport triggers a fast-forward (`seek(10)`).
-* A single tap checks for subsequent double-taps within a `300ms` window. If none are registered, play/pause state is toggled.
+**Fullscreen** runs in Plyr's CSS fallback mode (`fullscreen: { fallback: 'force' }` in the Plyr config inside `loadStream`). The JS Fullscreen API targets the `.plyr` container, which Android WebView silently ignores — it only honors native fullscreen on the `<video>` element via `onShowCustomView`, which would hide the WebView and its controls entirely. Forcing the fallback keeps the player inside the WebView with the control bar overlaid, so the Plyr UI (including the quality/speed menus) stays reachable in fullscreen. Plyr fires `enterfullscreen`/`exitfullscreen` on `player.elements.container`; `js/player.js` listens for them and calls the `AndroidApi.setFullscreen(boolean)` bridge, which hides the status/nav bars (`applyImmersive`) and rotates to landscape (`SCREEN_ORIENTATION_SENSOR_LANDSCAPE`) for the duration, restoring both on exit. The Android back button exits fullscreen first via `window.handleAppBack` in `js/boot.js` (it checks `player.fullscreen.active`), popping the player view on the next press.
 
-### 4. Background Buffering Prevention
+HLS (m3u8) streams are played with hls.js, wired manually in `loadStream` (Plyr 3.6+ has no built-in hls.js support): the backend's `master` playlist URL is fed to `new Hls()` via `loadSource` + `attachMedia`, and the **settings > quality** menu is driven by the `quality: { forced, onChange }` config (menu picks switch `hls.currentLevel`). **settings > speed** covers playback rate.
 
-WebViews often continue buffering video streams when hidden or when the screen is locked, leading to excessive cellular data usage.
-* When navigating away from the `'player'` view via `showView()`, `stopPlayback()` is invoked on the frontend.
-* This destroys the Plyr instance, tears down the HLS.js streaming worker, empties the `<video>` element's `src` attribute, and calls `.load()` on the video node to release connection pools and cancel downstream network buffers.
-* `MainActivity.onPause()` also executes a fallback check to immediately pause any ongoing background HTML5 playback:
+### 3. Background Buffering Prevention
+
+WebViews often continue buffering video streams when hidden or when the screen is locked, burning cellular data.
+* When navigating away from the `'player'` view via `showView()`, `stopPlayback()` runs on the frontend.
+* This destroys the Plyr instance (`player.destroy()`), tearing down the stream, emptying the `<video>` element's `src` attribute, and calling `.load()` on the video node to release connection pools and cancel downstream network buffers.
+* `MainActivity.onPause()` also executes a fallback check to pause any ongoing background HTML5 playback:
   ```java
   web.evaluateJavascript("(function(){var v=document.getElementById('video');if(v&&!v.paused)v.pause();})()", null);
   ```
+
+### 4. Resume Playback
+Reopening an episode resumes from the saved watch position. `js/player.js`'s `startWebPlayer` reads the episode's saved progress from history (`savedResumePosition` → `getHistoryMap` → `/api/history`) **before** `saveProgress(ep, 0, 0, true)` resets the row, then seeks the video on `loadedmetadata` once the duration is known. Resume is skipped for the first 15 seconds, within 10 seconds of the end, or past the 0.9 progress ratio the episode grid labels "Watched".
 
 ---
 
 ## Scraping Engine & Network Transport
 
-The backend scraping layer is in `AniDbScraper.java`. 
+The backend scraping layer is in `AniDbScraper.java`.
 
 ### Cloudflare Detection
 

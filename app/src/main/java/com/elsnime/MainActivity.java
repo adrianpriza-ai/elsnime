@@ -11,20 +11,33 @@ import org.json.*;
 import java.util.concurrent.*;
 
 public final class MainActivity extends Activity {
-    private WebView web; private Backend backend;
+    private WebView web; private Backend backend; private static volatile boolean immersive=false;
+    // immersive tracks Plyr's fallback fullscreen state (set via the
+    // AndroidApi.setFullscreen bridge) so onWindowFocusChanged can re-hide the
+    // system bars after a focus loss while fullscreen is active.
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     @SuppressWarnings("deprecation")
     @Override public void onCreate(Bundle state) { super.onCreate(state); backend=new Backend(this); web=new WebView(this); web.setBackgroundColor(0xff0f0f0f); WebSettings s=web.getSettings(); s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setMediaPlaybackRequiresUserGesture(false); s.setAllowFileAccess(true); s.setAllowUniversalAccessFromFileURLs(true); s.setUserAgentString("Elsnime Android");
         // The page declares color-scheme (meta + CSS) and themes itself; the
         // real system theme is read natively via AndroidApi.systemTheme(),
         // because WebView's prefers-color-scheme is unreliable across devices.
-        web.setWebViewClient(new WebViewClient()); web.addJavascriptInterface(new AndroidApi(web,backend),"AndroidApi"); setContentView(web); web.loadUrl("file:///android_asset/ui.html"); }
+        web.setWebViewClient(new WebViewClient());
+        // Fullscreen is handled by Plyr inside the page (CSS fallback mode
+        // fills the WebView viewport with the control bar overlaid), so there
+        // is no native custom view. This client exists to keep
+        // window.confirm() a silent no-op (the UI uses its own in-app dialog
+        // for destructive actions).
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onJsConfirm(WebView v, String url, String message, JsResult result) { result.cancel(); return true; }
+        });
+        web.addJavascriptInterface(new AndroidApi(web,backend),"AndroidApi"); setContentView(web); web.loadUrl("file:///android_asset/ui.html"); }
     @SuppressWarnings("deprecation")
     @Override public void onBackPressed(){
         // The UI is a single-page app with its own view stack, so the Android
-        // back button must go through the web layer: close the picker, pop the
-        // player/detail/history views, clear an active search — and only exit
-        // the app when a root tab is showing. The callback runs on the UI thread.
+        // back button must go through the web layer: exit Plyr fullscreen,
+        // close the picker, pop the player/detail/history views, clear an
+        // active search — and only exit the app when a root tab is showing.
+        // The callback runs on the UI thread.
         web.evaluateJavascript("(window.handleAppBack ? window.handleAppBack() : false)", result -> {
             // handleAppBack returns a boolean; the callback gets its JSON encoding ("true"/"false").
             if (result == null || !result.trim().equals("true")) MainActivity.super.onBackPressed();
@@ -45,6 +58,42 @@ public final class MainActivity extends Activity {
         super.onConfigurationChanged(c);
         if(web!=null)web.evaluateJavascript("window.__systemThemeChanged && window.__systemThemeChanged()", null);
     }
+    // Some devices re-show the system bars when the window regains focus (app
+    // switcher, notification shade); re-hide them while in fullscreen (the
+    // immersive flag is only set by AndroidApi.setFullscreen while Plyr's
+    // fallback fullscreen is active).
+    @Override public void onWindowFocusChanged(boolean hasFocus){
+        super.onWindowFocusChanged(hasFocus);
+        if(hasFocus&&immersive)applyImmersive(web,true);
+    }
+
+    // Called from the AndroidApi.setFullscreen bridge (and onWindowFocusChanged
+    // while fullscreen). API 30+ uses
+    // WindowInsetsController; older devices get the legacy
+    // SYSTEM_UI_FLAG_IMMERSIVE_STICKY combo. The transient behavior is reset
+    // to BEHAVIOR_DEFAULT when restoring, so swiping on normal screens shows
+    // the bars persistently again.
+    static void applyImmersive(WebView view, boolean on){
+        try {
+            Activity a = (Activity) view.getContext();
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                android.view.WindowInsetsController c = a.getWindow().getInsetsController();
+                if (c == null) return;
+                int bars = android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.navigationBars();
+                if (on) {
+                    c.hide(bars);
+                    c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                } else {
+                    c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_DEFAULT);
+                    c.show(bars);
+                }
+            } else {
+                android.view.View decor = a.getWindow().getDecorView();
+                int flags = on ? (android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | android.view.View.SYSTEM_UI_FLAG_FULLSCREEN | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN) : 0;
+                decor.setSystemUiVisibility(flags);
+            }
+        } catch (Exception ignored) {}
+    }
 
     static final class AndroidApi {
         private final WebView view; private final Backend backend; AndroidApi(WebView v,Backend b){view=v;backend=b;}
@@ -53,20 +102,25 @@ public final class MainActivity extends Activity {
             int mode = view.getContext().getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
             return mode == android.content.res.Configuration.UI_MODE_NIGHT_YES ? "dark" : "light";
         }
-        // Drive the activity orientation from JS: "landscape" (force), "sensor"
-        // (both, so rotating back to portrait can exit), "auto" (restore).
-        @JavascriptInterface public void setOrientation(final String mode){
+        @JavascriptInterface public void request(final String id,final String method,final String path,final String body){backend.executor.execute(()->{String result=backend.handle(method,path,body); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
+        @JavascriptInterface public void playInMpv(final String id,final String animeId,final String episode,final String type,final String referer,final String userAgent){backend.executor.execute(()->{String result=backend.playInMpv(animeId,episode,type,referer,userAgent); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
+        // Plyr fallback fullscreen state (called from player.js on
+        // enterfullscreen/exitfullscreen): hide the system bars + rotate to
+        // landscape for the duration, restore on exit. The last requested
+        // state is remembered so onWindowFocusChanged can re-apply it after a
+        // focus loss (some devices re-show the bars when the notification
+        // shade closes).
+        @JavascriptInterface public void setFullscreen(final boolean on){
+            immersive = on;
             view.post(() -> {
+                applyImmersive(view, on);
                 try {
                     Activity a = (Activity) view.getContext();
-                    if ("landscape".equals(mode)) a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-                    else if ("sensor".equals(mode)) a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR);
+                    if (on) a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
                     else a.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
                 } catch (Exception ignored) {}
             });
         }
-        @JavascriptInterface public void request(final String id,final String method,final String path,final String body){backend.executor.execute(()->{String result=backend.handle(method,path,body); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
-        @JavascriptInterface public void playInMpv(final String id,final String animeId,final String episode,final String type,final String referer,final String userAgent){backend.executor.execute(()->{String result=backend.playInMpv(animeId,episode,type,referer,userAgent); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
         @JavascriptInterface public void mpvStatus(final String id){backend.executor.execute(()->view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(backend.mpvStatus())+")",null)));}
         @JavascriptInterface public void saveProgress(final String id,final String animeId,final String animeTitle,final String episode,final double progress,final double duration,final String thumbnail,final boolean force){backend.executor.execute(()->{String result=saveProgressResult(animeId,animeTitle,episode,progress,duration,thumbnail,force); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
         // Pull-to-refresh: drop only the cache entries the active view needs, so
@@ -185,6 +239,7 @@ public final class MainActivity extends Activity {
             if(method.equals("GET")&&path.equals("/api/anime"))return scraper.anime(p.q("id"),p.q("type","sub")).toString();
             if(method.equals("POST")&&path.equals("/api/resolve"))return scraper.resolve(new JSONObject(body)).toString();
             if(method.equals("GET")&&path.equals("/api/tags"))return scraper.tags().toString();
+            if(method.equals("GET")&&path.equals("/api/aniskip"))return scraper.skipTimes(p.q("title"), p.q("episode")).toString();
             if(method.equals("GET")&&path.equals("/api/home"))return new JSONObject().put("trending",scraper.trending()).put("history",db.history()).toString();
             if(path.equals("/api/history")&&method.equals("GET"))return db.history().toString();
             if(path.equals("/api/history")&&method.equals("POST")){db.save(new JSONObject(body));return ok();}
@@ -270,7 +325,7 @@ public final class MainActivity extends Activity {
         void save(JSONObject x){getWritableDatabase().insertWithOnConflict("history",null,values(x),SQLiteDatabase.CONFLICT_REPLACE);}
         void saveBatch(java.util.List<JSONObject> rows){SQLiteDatabase d=getWritableDatabase();d.beginTransaction();try{for(JSONObject x:rows)d.insertWithOnConflict("history",null,values(x),SQLiteDatabase.CONFLICT_REPLACE);d.setTransactionSuccessful();}finally{d.endTransaction();}}
         void delete(int id){getWritableDatabase().delete("history","id=?",new String[]{String.valueOf(id)});}
-        JSONObject settings() throws Exception{JSONObject o=new JSONObject().put("hw_accel",false).put("sub_lang","sub").put("player","web").put("theme","auto").put("performance_mode","auto").put("accent_h",239);try(Cursor c=getReadableDatabase().query("settings",new String[]{"key","value"},null,null,null,null,null)){while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);try{o.put(k,new JSONTokener(v).nextValue());}catch(Exception ignored){}}}return o;}
+        JSONObject settings() throws Exception{JSONObject o=new JSONObject().put("hw_accel",false).put("sub_lang","sub").put("player","web").put("theme","auto").put("aniskip","on").put("performance_mode","auto").put("accent_h",239);try(Cursor c=getReadableDatabase().query("settings",new String[]{"key","value"},null,null,null,null,null)){while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);try{o.put(k,new JSONTokener(v).nextValue());}catch(Exception ignored){}}}return o;}
         void settings(JSONObject x){
             SQLiteDatabase d=getWritableDatabase();
             JSONArray names=x.names();

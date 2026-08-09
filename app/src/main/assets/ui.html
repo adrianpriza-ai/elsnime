@@ -16,7 +16,7 @@
 			rel="stylesheet"
 		/>
 		<link rel=preconnect href=https://fonts.googleapis.com>
-		<link rel=stylesheet href=https://cdn.plyr.io/3.7.8/plyr.css>
+		<link rel=stylesheet href=https://cdn.plyr.io/3.8.4/plyr.css>
 		<link rel=stylesheet href=css/base.css>
 		<link rel=stylesheet href=css/layout.css>
 		<link rel=stylesheet href=css/search.css>
@@ -65,8 +65,8 @@
 		</div>
 
 		<!-- Confirmation dialog: window.confirm() is a silent no-op inside the
-		     Android WebView (the app sets no WebChromeClient), so destructive
-		     actions use this in-app dialog instead. -->
+		     Android WebView (the app's WebChromeClient cancels JS dialogs), so
+		     destructive actions use this in-app dialog instead. -->
 		<div
 			id="confirm-modal"
 			class="confirm-overlay"
@@ -256,140 +256,92 @@
 					<div class="watch-cols">
 						<div class="watch-main">
 							<div id="video-wrap">
-								<video id="video" playsinline controls></video>
+								<!-- Controls come from Plyr (controls option) — no native controls
+								     attribute so the WebView can't draw a second control bar. -->
+								<video id="video" playsinline></video>
 
-								<!-- Floating player controls: skip ±10s + fullscreen. They
-								     auto-hide like YouTube: visible on interaction, fading out
-								     after a few seconds (see player.css / player.js). -->
-								<div class="player-ov player-ov--left">
-									<button
-										type="button"
-										class="ov-btn"
-										data-action="seek-back"
-										aria-label="Back 10 seconds"
-										title="Back 10s"
-									>
-										<svg viewBox="0 0 24 24">
-											<path
-												d="M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"
-											></path>
-										</svg>
-									</button>
-									<button
-										type="button"
-										class="ov-btn"
-										data-action="seek-fwd"
-										aria-label="Forward 10 seconds"
-										title="Forward 10s"
-									>
-										<svg viewBox="0 0 24 24">
-											<path
-												d="M12 5V1l5 5-5 5V7c-3.3 0-6 2.7-6 6s2.7 6 6 6 6-2.7 6-6h1c0 4.4-3.6 8-8 8s-8-3.6-8-8 3.6-8 8-8z"
-											></path>
-										</svg>
-									</button>
-								</div>
-								<div class="player-ov player-ov--right">
-									<button
-										type="button"
-										class="ov-btn"
-										data-action="fullscreen"
-										aria-label="Fullscreen"
-										title="Fullscreen"
-									>
-										<svg viewBox="0 0 24 24">
-											<path
-												d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
-											></path>
-										</svg>
-									</button>
-								</div>
-
-								<!-- Double-tap seek feedback -->
-								<div id="seek-indicator" class="seek-indicator" aria-hidden="true">
-									<svg
-										id="seek-indicator-icon"
-										viewBox="0 0 24 24"
-									>
-										<path
-											d="M12 5V1l5 5-5 5V7c-3.3 0-6 2.7-6 6s2.7 6 6 6 6-2.7 6-6h1c0 4.4-3.6 8-8 8s-8-3.6-8-8 3.6-8 8-8z"
-										></path>
+								<!-- AniSkip: Crunchyroll-style skip button shown while the
+								     opening/recap/ending plays (populated from player.js) -->
+								<button type="button" id="skip-btn" class="skip-btn" hidden>
+									<svg viewBox="0 0 24 24">
+										<polygon points="5 4 15 12 5 20 5 4"></polygon>
+										<polygon points="13 4 23 12 13 20 13 4"></polygon>
 									</svg>
-									<span id="seek-indicator-time">0:00</span>
-								</div>
+									<span id="skip-btn-label">Skip</span>
+								</button>
 							</div>
 
-							<div id="player-title">Title <span id="player-ep-label"></span></div>
+						<div id="player-title">Title <span id="player-ep-label"></span></div>
 
-							<div class="watch-channel">
-								<img
-									id="player-avatar"
-									class="watch-avatar"
-									src
-									alt
-									onerror="this.style.display = 'none'"
-								/>
-								<div class="watch-channel-meta">
-									<div class="watch-channel-name" id="watch-channel-name"></div>
-									<div class="watch-channel-sub" id="watch-channel-sub"></div>
-								</div>
-								<div class="seg-ctrl seg-ctrl--sm" id="player-seg-ctrl">
-									<button
-										class="seg-btn active"
-										data-lang="sub"
-										onclick="switchTranslation('sub', this)"
-									>
-										SUB
-									</button>
-									<button
-										class="seg-btn"
-										data-lang="dub"
-										onclick="switchTranslation('dub', this)"
-									>
-										DUB
-									</button>
-								</div>
+						<div class="watch-channel">
+							<img
+								id="player-avatar"
+								class="watch-avatar"
+								src
+								alt
+								onerror="this.style.display = 'none'"
+							/>
+							<div class="watch-channel-meta">
+								<div class="watch-channel-name" id="watch-channel-name"></div>
+								<div class="watch-channel-sub" id="watch-channel-sub"></div>
 							</div>
-
-							<div id="player-actions">
-								<button class="action-btn" onclick="markWatched()">
-									<svg viewBox="0 0 24 24">
-										<polyline points="20 6 9 17 4 12"></polyline>
-									</svg>
-									Mark Watched
-								</button>
-								<button class="action-btn" id="btn-mpv" onclick="playInMpv()">
-									<svg viewBox="0 0 24 24">
-										<polygon points="5 3 19 12 5 21 5 3"></polygon>
-									</svg>
-									Open in MPV
-								</button>
-								<span class="yt-actions-spacer"></span>
+							<div class="seg-ctrl seg-ctrl--sm" id="player-seg-ctrl">
 								<button
-									class="action-btn icon-only"
-									id="btn-prev"
-									onclick="playAdjacentEp(-1)"
-									title="Previous episode"
-									aria-label="Previous episode"
+									class="seg-btn active"
+									data-lang="sub"
+									onclick="switchTranslation('sub', this)"
 								>
-									<svg viewBox="0 0 24 24">
-										<polyline points="15 18 9 12 15 6"></polyline>
-									</svg>
+									SUB
 								</button>
 								<button
-									class="action-btn icon-only"
-									id="btn-next"
-									onclick="playAdjacentEp(1)"
-									title="Next episode"
-									aria-label="Next episode"
+									class="seg-btn"
+									data-lang="dub"
+									onclick="switchTranslation('dub', this)"
 								>
-									<svg viewBox="0 0 24 24">
-										<polyline points="9 18 15 12 9 6"></polyline>
-									</svg>
+									DUB
 								</button>
 							</div>
+						</div>
 
-							<div id="player-error"></div>
+						<div id="player-actions">
+							<button class="action-btn" onclick="markWatched()">
+								<svg viewBox="0 0 24 24">
+									<polyline points="20 6 9 17 4 12"></polyline>
+								</svg>
+								Mark Watched
+							</button>
+							<button class="action-btn" id="btn-mpv" onclick="playInMpv()">
+								<svg viewBox="0 0 24 24">
+									<polygon points="5 3 19 12 5 21 5 3"></polygon>
+								</svg>
+								Open in MPV
+							</button>
+							<span class="yt-actions-spacer"></span>
+							<button
+								class="action-btn icon-only"
+								id="btn-prev"
+								onclick="playAdjacentEp(-1)"
+								title="Previous episode"
+								aria-label="Previous episode"
+							>
+								<svg viewBox="0 0 24 24">
+									<polyline points="15 18 9 12 15 6"></polyline>
+								</svg>
+							</button>
+							<button
+								class="action-btn icon-only"
+								id="btn-next"
+								onclick="playAdjacentEp(1)"
+								title="Next episode"
+								aria-label="Next episode"
+							>
+								<svg viewBox="0 0 24 24">
+									<polyline points="9 18 15 12 9 6"></polyline>
+								</svg>
+							</button>
+						</div>
+
+						<div id="player-error"></div>
 						</div>
 
 						<div class="watch-side">
@@ -496,7 +448,7 @@
 									</div>
 								</div>
 								<div class="settings-row">
-									<div class="settings-label">Default Language</div>
+									<div class="settings-label">Default Version</div>
 									<div
 										class="pill-slider"
 										id="pill-lang"
@@ -518,6 +470,32 @@
 											onclick="selectPillOption(this)"
 										>
 											Dub
+										</button>
+									</div>
+								</div>
+								<div class="settings-row">
+									<div class="settings-label">Skip intros &amp; credits</div>
+									<div
+										class="pill-slider"
+										id="pill-aniskip"
+										data-setting="aniskip"
+									>
+										<div class="pill-highlight"></div>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="on"
+											onclick="selectPillOption(this)"
+										>
+											On
+										</button>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="off"
+											onclick="selectPillOption(this)"
+										>
+											Off
 										</button>
 									</div>
 								</div>
@@ -602,8 +580,11 @@
 				</button>
 			</nav>
 		</div>
-		<script src=https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js></script>
-		<script src=https://cdn.plyr.io/3.7.8/plyr.js></script>
+		<!-- Plyr 3: player UI. HLS (m3u8) is played through hls.js, wired manually
+		     in player.js (Plyr 3.6+ has no built-in hls.js support) — the master
+		     playlist feeds the settings > quality menu via quality.onChange. -->
+		<script src=https://cdn.plyr.io/3.8.4/plyr.js></script>
+		<script src=https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js></script>
 		<!-- Keep this order; boot.js must load last (it starts the app) -->
 		<script src="js/core.js"></script>
 		<script src="js/search.js"></script>

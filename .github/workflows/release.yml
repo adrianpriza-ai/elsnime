@@ -60,23 +60,34 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "Elsnime ${{ steps.version.outputs.tag }}"
           body: |
-            ## Elsnime ${{ steps.version.outputs.tag }}
+```yaml
+  - name: Create GitHub Release
+    uses: softprops/action-gh-release@v2
+    with:
+      tag_name: ${{ steps.version.outputs.tag }}
+      name: "Elsnime ${{ steps.version.outputs.tag }}"
+      body: |
+        # Elsnime ${{ steps.version.outputs.tag }}
 
-            ### APK Downloads
-            Download the APK matching your device's CPU architecture:
+        Download the APK for your device:
 
-            | Architecture | File | Description |
-            |-------------|------|-------------|
-            | ARM 64-bit | `elsnime-${{ steps.version.outputs.tag }}-arm64-v8a.apk` | Most modern Android phones and tablets |
-            | ARM 32-bit | `elsnime-${{ steps.version.outputs.tag }}-armeabi-v7a.apk` | Older Android devices |
-            | x86_64 | `elsnime-${{ steps.version.outputs.tag }}-x86_64.apk` | 64-bit Android emulators |
-            | x86 | `elsnime-${{ steps.version.outputs.tag }}-x86.apk` | 32-bit Android emulators |
+        | Architecture | APK |
+        |:-------------|:----|
+        | **ARM64** | `elsnime-${{ steps.version.outputs.tag }}-arm64-v8a.apk` |
+        | **ARMv7** | `elsnime-${{ steps.version.outputs.tag }}-armeabi-v7a.apk` |
+        | **x86_64** | `elsnime-${{ steps.version.outputs.tag }}-x86_64.apk` |
+        | **x86** | `elsnime-${{ steps.version.outputs.tag }}-x86.apk` |
 
-            ### Installation
-            1. Download the APK for your device architecture
-            2. Open the file on your Android device
-            3. Allow installation from unknown sources if prompted
-            4. Follow the on-screen instructions
-          files: app/build/outputs/apk/debug/elsnime-*.apk
-          draft: false
-          prerelease: false
+        ## Installation
+
+        1. Download the APK from **Assets** below.
+        2. Open the APK and install it.
+        3. If prompted, allow your browser or file manager to install apps from unknown sources.
+
+        > **Play Protect:** You may see a warning because Elsnime isn't distributed through Google Play or verified by Google. If you trust this release, tap **More details** → **Install anyway** to continue.
+
+        **Minimum Android:** 5.0 (API 21)  
+        **License:** GPL-3.0
+      files: app/build/outputs/apk/debug/elsnime-*.apk
+      draft: false
+      prerelease: false

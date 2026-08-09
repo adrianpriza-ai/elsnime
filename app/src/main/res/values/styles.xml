@@ -1,7 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:fontFamily">sans</item><item name="android:colorAccent">#8d8cff</item>
-        <item name="android:windowActionModeOverlay">true</item><item name="android:navigationBarColor">#050508</item>
-        <item name="android:statusBarColor">#050508</item><item name="android:windowLightStatusBar">false</item>
-    </style>
+	<!-- AppTheme: framework Material theme (the app has no AppCompat/Material
+	     dependencies). The UI is a dark, immersive WebView SPA that themes
+	     itself, so only the window chrome behind it needs styling — match the
+	     app's dark background (#0f0f0f) to avoid a white flash on launch. -->
+	<style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+		<item name="android:windowBackground">#0f0f0f</item>
+		<item name="android:colorPrimary">#0f0f0f</item>
+		<item name="android:colorPrimaryDark">#0f0f0f</item>
+		<item name="android:colorAccent">#3aa0ff</item>
+		<item name="android:statusBarColor">#0f0f0f</item>
+		<item name="android:navigationBarColor">#0f0f0f</item>
+		<item name="android:windowLightStatusBar">false</item>
+		<item name="android:windowLightNavigationBar">false</item>
+	</style>
 </resources>

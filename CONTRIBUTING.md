@@ -13,12 +13,14 @@ By participating in this project, you agree to maintain a respectful, welcoming,
 ## Getting Started
 
 ### 1. Prerequisites
+
 - **Java Development Kit (JDK)**: Version 17 or higher.
 - **Android SDK**: Command Line Tools or Android Studio.
 - **Node.js (Optional)**: If you plan on running automated formatting or local linters on the asset folder.
 - **Python 3**: For running the local web server (`app.py`) during UI development.
 
 ### 2. Setting Up Your Workspace
+
 Clone the repository and verify the Gradle environment by requesting a help build:
 
 ```bash
@@ -38,7 +40,7 @@ All frontend assets are located in `app/src/main/assets/`.
 - **Accessibility (a11y)**:
   - Keep active buttons clickable with clear hover boundaries (`--bg-hover` is standard).
   - Use appropriate focus state properties. For example, modal overlays and picker sheets should restore focus to the last-active elements when dismissed.
-- **Cross-Device Performance**: Test views on multiple layout widths. The app automatically flips to fullscreen landscape on mobile devices, but uses static buttons on tablets or desktop wrappers. Ensure your layouts are fully responsive.
+- **Cross-Device Performance**: Test views on multiple layout widths. Entering fullscreen rotates the player to landscape on phones and hides the system bars; outside fullscreen the bars stay visible. Ensure your layouts are fully responsive.
 
 ---
 

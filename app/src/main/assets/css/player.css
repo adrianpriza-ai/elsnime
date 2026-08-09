@@ -99,73 +99,54 @@
 	border: 1px solid var(--danger-strong);
 }
 
-.plyr {
+/* - Plyr theming -
+   YouTube-style: accent progress/volume, gradient control bar, white icons.
+   The controls sit on a dark gradient over the video, so their colors are
+   fixed white — theme text colors (dark in light mode) are never used here. */
+
+#video-wrap .plyr {
 	--plyr-color-main: var(--accent-primary);
-	--plyr-range-track-height: 5px;
-	--plyr-range-thumb-height: 15px;
+	--plyr-video-control-color: #fff;
+	--plyr-video-control-color-hover: #fff;
+	--plyr-video-control-background-hover: rgba(255, 255, 255, 0.18);
 	--plyr-video-controls-background: linear-gradient(
 		transparent,
 		rgba(0, 0, 0, 0.85)
 	);
-	--plyr-video-control-color: var(--text-primary);
-	--plyr-video-control-color-hover: #fff; /* brighter on the black video gradient */
-	border-radius: 0;
+	--plyr-control-radius: 6px;
+	/* Menus / tooltips use the app surfaces so they read correctly in both
+	   themes (Plyr's defaults are a flat dark gray on every theme). */
+	--plyr-menu-background: var(--surface);
+	--plyr-menu-color: var(--text-primary);
+	--plyr-menu-arrow-color: var(--text-secondary);
+	--plyr-menu-item-arrow-color: var(--text-secondary);
+	--plyr-tooltip-background: var(--surface);
+	--plyr-tooltip-color: var(--text-primary);
+	--plyr-tooltip-arrow-color: var(--surface);
 }
 
-.plyr--full-ui input[type="range"] {
-	color: var(--accent-primary);
-}
+/* - AniSkip skip button -
+   Crunchyroll-style "Skip Intro" pill shown while the opening, recap, or
+   ending plays. Tapping it seeks past the interval. */
 
-.plyr__control--overlaid {
-	background: var(--accent-primary);
-}
-
-.plyr--video .plyr__controls {
-	background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
-}
-
-/* ---------- Floating overlay controls (skip ±10s / fullscreen) ----------
-   They sit just above Plyr's control bar and auto-hide like YouTube's
-   overlay controls: visible while the user is interacting (or while the
-   video is paused), then fade out after a few seconds of no interaction.
-   The .controls-visible class is toggled from player.js. */
-
-.player-ov {
+.skip-btn {
 	position: absolute;
-	z-index: 5;
-	display: flex;
-	gap: 6px;
-	opacity: 0;
-	pointer-events: none;
-	transition: opacity var(--transition-normal);
-}
-
-#video-wrap.controls-visible .player-ov {
-	opacity: 1;
-	pointer-events: auto;
-}
-
-.player-ov--left {
-	left: 10px;
-	bottom: 58px;
-}
-
-.player-ov--right {
 	right: 10px;
-	bottom: 58px;
-}
-
-.ov-btn {
-	width: 42px;
-	height: 42px;
+	bottom: 68px;
+	z-index: 7;
 	display: inline-flex;
 	align-items: center;
-	justify-content: center;
+	gap: 8px;
+	padding: 8px 16px;
 	border: 0;
-	border-radius: 50%;
-	background: rgba(0, 0, 0, 0.55);
-	box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+	border-radius: 999px;
+	background: rgba(15, 15, 15, 0.88);
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
 	color: #fff;
+	font-family: "Inter", sans-serif;
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: 0.2px;
 	cursor: pointer;
 	-webkit-tap-highlight-color: transparent;
 	transition:
@@ -173,86 +154,32 @@
 		transform var(--transition-fast);
 }
 
-.ov-btn:hover {
-	background: rgba(0, 0, 0, 0.8);
-}
-
-.ov-btn:active {
-	transform: scale(0.92);
-}
-
-.ov-btn svg {
-	width: 22px;
-	height: 22px;
-	fill: currentColor;
-	stroke: none;
-}
-
-/* ---------- Seek indicator (double-tap / skip feedback) ---------- */
-
-.seek-indicator {
-	position: absolute;
-	top: 50%;
-	left: 50%;
-	transform: translate(-50%, -50%);
-	z-index: 6;
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 10px 16px;
-	border-radius: var(--radius-md);
-	background: rgba(0, 0, 0, 0.7);
-	color: #fff;
-	font-family: "Inter", sans-serif;
-	font-size: 15px;
-	font-weight: 600;
-	opacity: 0;
-	pointer-events: none;
-	transition: opacity var(--transition-fast);
-}
-
-.seek-indicator.show {
-	opacity: 1;
-}
-
-.seek-indicator svg {
-	width: 22px;
-	height: 22px;
-	fill: currentColor;
-	transition: transform var(--transition-fast);
-}
-
-.seek-indicator svg.flip {
-	transform: scaleX(-1);
-}
-
-/* ---------- Fullscreen overlay mode ----------
-   The video wrapper expands to cover the whole app (bottom nav hidden). */
-
-body.video-fullscreen {
-	background: #000;
-}
-
-body.video-fullscreen #main {
-	overflow: hidden;
-}
-
-body.video-fullscreen #bottom-nav {
+/* The [hidden] attribute must win over display:inline-flex above. */
+.skip-btn[hidden] {
 	display: none;
 }
 
-body.video-fullscreen #video-wrap {
+/* In Plyr's fallback fullscreen the .plyr element becomes position:fixed over
+   the whole viewport, burying the skip pill (it anchors to #video-wrap).
+   Float it to the viewport so AniSkip keeps working in fullscreen too. */
+#video-wrap .plyr--fullscreen-fallback ~ .skip-btn {
 	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	z-index: 1000;
-	width: 100vw;
-	height: 100vh;
-	max-width: none;
-	margin: 0;
-	aspect-ratio: auto;
-	border-radius: 0;
-	background: #000;
+	bottom: 68px;
+	right: 10px;
+	z-index: 10000001;
+}
+
+.skip-btn:hover {
+	background: rgba(33, 33, 33, 0.95);
+}
+
+.skip-btn:active {
+	transform: scale(0.96);
+}
+
+.skip-btn svg {
+	width: 16px;
+	height: 16px;
+	fill: currentColor;
+	stroke: none;
 }

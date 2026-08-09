@@ -44,12 +44,6 @@ document.addEventListener('keydown', e => {
         playInMpv();
       }
       break;
-    case 'f':
-      if (document.getElementById('view-player').classList.contains('active')) {
-        e.preventDefault();
-        toggleFullscreen();
-      }
-      break;
     case 'escape':
       e.preventDefault();
       handleAppBack();
@@ -76,9 +70,11 @@ window.handleAppBack = function() {
   const active = document.querySelector('.view.active');
   const activeId = active ? active.id.replace('view-', '') : '';
   if (activeId === 'player') {
-    // Back while fullscreen leaves fullscreen first, then backs out of the player.
-    if (document.body.classList.contains('video-fullscreen')) {
-      exitFullscreen();
+    // Plyr's fallback fullscreen lives inside the WebView, so the Android
+    // back button reaches this handler — exit fullscreen first (like a
+    // normal video app), and pop the player view on the next press.
+    if (player && player.fullscreen && player.fullscreen.active) {
+      player.fullscreen.exit();
       return true;
     }
     maybePersistPlaybackProgress(true);
@@ -102,7 +98,9 @@ window.handleAppBack = function() {
 // reload the active view. On Android the cache lives in Java (SQLite), cleared
 // through AndroidApi.refresh(); in dev mode there is nothing to drop and the
 // reload alone re-fetches.
-const PULL_THRESHOLD = 80;
+// Tuned so a short flick or accidental drag (~<90px of finger travel) can't
+// trigger — the refresh only fires on a deliberate pull (~125px of travel).
+const PULL_THRESHOLD = 70;
 let pullStartY = 0;
 let pulling = false;
 let pullDistance = 0;
@@ -120,7 +118,7 @@ function refreshableView() {
 
 function setPullIndicator(distance) {
   const progress = Math.min(distance / PULL_THRESHOLD, 1);
-  refreshIndicator.style.transform = 'translate(-50%, ' + Math.round(distance - 110) + 'px)';
+  refreshIndicator.style.transform = 'translate(-50%, ' + Math.round(distance - 90) + 'px)';
   refreshIndicator.style.opacity = String(Math.min(progress * 1.5, 1));
   refreshLabel.textContent = progress >= 1 ? 'Release to refresh' : 'Pull to refresh';
 }
@@ -143,7 +141,7 @@ mainScroll.addEventListener('touchmove', e => {
   if (!pulling) return;
   const delta = e.touches[0].clientY - pullStartY;
   if (delta <= 0) { pulling = false; resetPullIndicator(); return; }
-  pullDistance = Math.min(delta * 0.45, 130);
+  pullDistance = Math.min(delta * 0.55, 120);
   setPullIndicator(pullDistance);
   e.preventDefault();
 }, { passive: false });
