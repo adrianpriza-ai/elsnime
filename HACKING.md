@@ -54,7 +54,7 @@ app/src/main/
 
 | File | Responsibility |
 |-|-|
-| `boot.js` | Startup, view routing, keyboard shortcuts (incl. `D` → Downloads), one-time setup toasts |
+| `boot.js` | Startup, view routing, keyboard shortcuts (incl. `D` → Downloads), pull-to-refresh |
 | `core.js` | `androidRequest()` bridge helper, `showToast()`, shared utilities, `playInMpvNative()` |
 | `home.js` | Home dashboard: trending, continue-watching row |
 | `search.js` | Fuzzy search, category chips |
