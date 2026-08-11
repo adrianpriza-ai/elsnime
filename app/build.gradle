@@ -28,17 +28,19 @@ android {
     signingConfigs {
         // Only define the release signing config when all keystore env vars are
         // present, so debug builds work without a keystore. Values only matter
-        // for release builds.
-        def keystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
-        def keystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-        def keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-        def keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
-        if (keystoreFile && keystorePassword && keyAlias && keyPassword) {
+        // for release builds. The locals are prefixed (env*) because they'd
+        // otherwise shadow the keyAlias/keyPassword DSL methods: `keyAlias
+        // keyAlias` would be parsed as a call on the String, not the setter.
+        def envKeystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
+        def envKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+        def envKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+        def envKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+        if (envKeystoreFile && envKeystorePassword && envKeyAlias && envKeyPassword) {
             release {
-                storeFile file(keystoreFile)
-                storePassword keystorePassword
-                keyAlias keyAlias
-                keyPassword keyPassword
+                storeFile file(envKeystoreFile)
+                storePassword envKeystorePassword
+                keyAlias envKeyAlias
+                keyPassword envKeyPassword
             }
         }
     }
