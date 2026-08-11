@@ -72,7 +72,7 @@ body {
 body {
 	background: var(--bg-primary);
 	color: var(--text-primary);
-	font-family: "Inter", sans-serif;
+	font-family: sans-serif;
 	-webkit-font-smoothing: antialiased;
 	overflow: hidden;
 }

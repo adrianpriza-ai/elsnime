@@ -79,12 +79,24 @@
 	gap: 12px;
 	overflow-x: auto;
 	padding-bottom: 8px;
+	/* Smooth, deliberate horizontal sliding on touch: momentum scrolling for
+	   the WebView, snap-to-card so the row never stops mid-card, and no
+	   scrollbar (horizontal overscroll stays in the row, not the page). */
+	-webkit-overflow-scrolling: touch;
+	scroll-snap-type: x mandatory;
+	overscroll-behavior-x: contain;
+	scrollbar-width: none;
+}
+
+.continue-row::-webkit-scrollbar {
+	display: none;
 }
 
 .continue-card {
 	flex-shrink: 0;
 	width: 150px;
 	cursor: pointer;
+	scroll-snap-align: start;
 }
 
 .continue-thumb-wrap {

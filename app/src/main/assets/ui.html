@@ -11,17 +11,16 @@
 		     darkening the page (the app themes itself). -->
 		<meta name="color-scheme" content="dark light" />
 		<title>Elsnime</title>
-		<link
-			href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-			rel="stylesheet"
-		/>
-		<link rel=preconnect href=https://fonts.googleapis.com>
-		<link rel=stylesheet href=https://cdn.plyr.io/3.8.4/plyr.css>
+		<!-- No web fonts: the app uses the system sans-serif (Roboto on Android)
+		     so nothing is downloaded from a CDN and the UI works offline.
+		     Plyr + hls.js are vendored locally (vendor/). -->
+		<link rel=stylesheet href=vendor/plyr.css>
 		<link rel=stylesheet href=css/base.css>
 		<link rel=stylesheet href=css/layout.css>
 		<link rel=stylesheet href=css/search.css>
 		<link rel=stylesheet href=css/cards.css>
 		<link rel=stylesheet href=css/detail.css>
+		<link rel=stylesheet href=css/downloads.css>
 		<link rel=stylesheet href=css/player.css>
 		<link rel=stylesheet href=css/youtube.css>
 		<link rel=stylesheet href=css/history.css>
@@ -195,6 +194,19 @@
 									</svg>
 									Play
 								</button>
+								<button
+									class="yt-play-btn yt-play-btn--ghost"
+									id="btn-download-all"
+									onclick="downloadSeries()"
+									disabled
+								>
+									<svg viewBox="0 0 24 24">
+										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+										<polyline points="7 10 12 15 17 10"></polyline>
+										<line x1="12" y1="15" x2="12" y2="3"></line>
+									</svg>
+									<span class="btn-dl-all-label">Download All</span>
+								</button>
 								<div class="seg-ctrl" id="detail-seg-ctrl">
 									<button
 										class="seg-btn active"
@@ -304,6 +316,16 @@
 						</div>
 
 						<div id="player-actions">
+							<button class="action-btn" id="btn-download-ep" onclick="downloadCurrentEpisode()">
+								<span class="btn-icon"
+									><svg viewBox="0 0 24 24">
+										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+										<polyline points="7 10 12 15 17 10"></polyline>
+										<line x1="12" y1="15" x2="12" y2="3"></line>
+									</svg
+								></span>
+								<span id="btn-download-ep-label">Download</span>
+							</button>
 							<button class="action-btn" onclick="markWatched()">
 								<svg viewBox="0 0 24 24">
 									<polyline points="20 6 9 17 4 12"></polyline>
@@ -352,6 +374,12 @@
 							<div id="eps-list"></div>
 						</div>
 					</div>
+				</div>
+
+				<!-- Downloads: native download queue with progress -->
+				<div class="view" id="view-downloads">
+					<div class="page-title">Downloads</div>
+					<div id="downloads-list"></div>
 				</div>
 
 				<!-- Full history (reached from Home via See all) -->
@@ -499,6 +527,56 @@
 										</button>
 									</div>
 								</div>
+								<div class="settings-row settings-row--stack">
+									<div class="settings-label">Default Quality</div>
+									<div
+										class="pill-slider"
+										id="pill-quality"
+										data-setting="quality"
+									>
+										<div class="pill-highlight"></div>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="auto"
+											onclick="selectPillOption(this)"
+										>
+											Auto
+										</button>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="1080"
+											onclick="selectPillOption(this)"
+										>
+											1080p
+										</button>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="720"
+											onclick="selectPillOption(this)"
+										>
+											720p
+										</button>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="480"
+											onclick="selectPillOption(this)"
+										>
+											480p
+										</button>
+										<button
+											class="pill-option"
+											type="button"
+											data-value="360"
+											onclick="selectPillOption(this)"
+										>
+											360p
+										</button>
+									</div>
+								</div>
 							</div>
 						</section>
 						<section class="settings-group">
@@ -515,8 +593,7 @@
 									>
 										Reset
 									</button>
-								</div>
-								<div class="settings-row">
+								</div>								<div class="settings-row">
 									<div class="settings-label">Clear watch history</div>
 									<button
 										class="danger-btn"
@@ -526,10 +603,28 @@
 										<svg viewBox="0 0 24 24">
 											<polyline points="3 6 5 6 21 6"></polyline>
 											<path
-												d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+													d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
 											></path>
 										</svg>
 										Clear
+									</button>
+								</div>
+								<div class="settings-row">
+									<div class="settings-label">
+										Remove all downloads
+									</div>
+									<button
+										class="danger-btn"
+										type="button"
+										onclick="clearAllDownloads()"
+									>
+										<svg viewBox="0 0 24 24">
+											<polyline points="3 6 5 6 21 6"></polyline>
+											<path
+													d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+											></path>
+										</svg>
+										Remove all
 									</button>
 								</div>
 							</div>
@@ -566,6 +661,19 @@
 				</button>
 				<button
 					class="nav-btn"
+					id="nav-downloads"
+					title="Downloads (D)"
+					onclick="navigate('downloads')"
+				>
+					<svg viewBox="0 0 24 24">
+						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+						<polyline points="7 10 12 15 17 10"></polyline>
+						<line x1="12" y1="15" x2="12" y2="3"></line>
+					</svg>
+					<span class="nav-label">Downloads</span>
+				</button>
+				<button
+					class="nav-btn"
 					id="nav-settings"
 					title="Settings (S)"
 					onclick="navigate('settings')"
@@ -582,15 +690,18 @@
 		</div>
 		<!-- Plyr 3: player UI. HLS (m3u8) is played through hls.js, wired manually
 		     in player.js (Plyr 3.6+ has no built-in hls.js support) — the master
-		     playlist feeds the settings > quality menu via quality.onChange. -->
-		<script src=https://cdn.plyr.io/3.8.4/plyr.js></script>
-		<script src=https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js></script>
+		     playlist feeds the settings > quality menu via quality.onChange.
+		     Both libraries are vendored locally (vendor/), so playback doesn't
+		     depend on a CDN (works offline). -->
+		<script src="vendor/plyr.min.js"></script>
+		<script src="vendor/hls.min.js"></script>
 		<!-- Keep this order; boot.js must load last (it starts the app) -->
 		<script src="js/core.js"></script>
 		<script src="js/search.js"></script>
 		<script src="js/home.js"></script>
 		<script src="js/detail.js"></script>
 		<script src="js/player.js"></script>
+		<script src="js/downloads.js"></script>
 		<script src="js/history.js"></script>
 		<script src="js/boot.js"></script>
 	</body>

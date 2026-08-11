@@ -19,20 +19,25 @@ async function loadHomeContinue(existing) {
   if (!el) return;
   const hist = existing || await api.get('/api/history').catch(() => []);
   S.history = hist;
-  if (!hist.length) { el.innerHTML = ''; return; }
+  // One card per series (history is grouped by anime, not episode). The row is
+  // capped at 10 cards; the See-more button opens the full History tab.
+  const groups = groupHistoryByAnime(hist);
+  if (!groups.length) { el.innerHTML = ''; return; }
   el.innerHTML = '<div class="section-head"><div class="section-title">Continue Watching</div>' +
-    '<button class="see-all" onclick="pushView(\'history\')">See all</button></div>' +
+    // Always shown: it is the only in-UI route to the full History tab.
+    '<button class="see-all" onclick="pushView(\'history\')">See more</button></div>' +
     '<div class="continue-row">' +
-    hist.slice(0, 10).map(h => {
+    groups.slice(0, 10).map(g => {
+      const h = g.latest;
       const pct = h.duration > 0 ? Math.min(100, (h.progress / h.duration) * 100).toFixed(1) : 0;
-      return `<div class="continue-card" onclick="resumeFromHistory(${h.id})">
+      return `<div class="continue-card" data-anime="${escapeHTML(g.anime_id)}" onclick="resumeFromHistory(this.dataset.anime)">
         <div class="continue-thumb-wrap">
-          <img class="continue-thumb" src="${h.thumbnail}" alt="" onerror="this.style.opacity=0">
+          <img class="continue-thumb" src="${escapeHTML(h.thumbnail)}" alt="" onerror="this.style.opacity=0">
           <div class="continue-progress"><div class="continue-fill" style="width:${pct}%"></div></div>
         </div>
         <div class="continue-info">
-          <div class="continue-title">${h.anime_title}</div>
-          <div class="continue-ep">Ep ${h.episode}</div>
+          <div class="continue-title">${escapeHTML(g.anime_title)}</div>
+          <div class="continue-ep">Ep ${escapeHTML(h.episode)}</div>
         </div>
       </div>`;
     }).join('') + '</div>';

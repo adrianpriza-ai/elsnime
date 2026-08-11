@@ -12,12 +12,49 @@ import java.util.concurrent.*;
 
 public final class MainActivity extends Activity {
     private WebView web; private Backend backend; private static volatile boolean immersive=false;
+    // Storage permission (API 23-28 only; API 29+ uses MediaStore and needs
+    // nothing): the bridge thread parks on this until onRequestPermissionsResult
+    // resolves it, then proceeds (or fails cleanly when the user denies).
+    private static volatile java.util.concurrent.CompletableFuture<Boolean> storagePermissionFuture;
+    private static final Object storagePermissionLock = new Object();
+    private static final int STORAGE_PERMISSION_REQUEST = 7001;
+
+    // Ensure WRITE_EXTERNAL_STORAGE before the first download on legacy Android.
+    // Blocks up to 30s waiting for the user's answer; returns true on API 29+
+    // where MediaStore needs no permission. A full-series queue fires several
+    // startDownload calls concurrently (each on its own executor thread), so
+    // concurrent callers share the in-flight request instead of racing on it.
+    static boolean ensureStoragePermission(WebView view){
+        if(android.os.Build.VERSION.SDK_INT>=29)return true;
+        final android.content.Context c=view.getContext();
+        java.util.concurrent.CompletableFuture<Boolean> f;
+        boolean requester=false;
+        synchronized(storagePermissionLock){
+            if(c.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)==android.content.pm.PackageManager.PERMISSION_GRANTED)return true;
+            if(storagePermissionFuture==null){storagePermissionFuture=new java.util.concurrent.CompletableFuture<>();requester=true;}
+            f=storagePermissionFuture;
+        }
+        if(requester){
+            view.post(()->{
+                try{((Activity)c).requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},STORAGE_PERMISSION_REQUEST);}
+                catch(Exception e){synchronized(storagePermissionLock){if(storagePermissionFuture!=null){storagePermissionFuture.complete(false);storagePermissionFuture=null;}}}
+            });
+        }
+        try{return f.get(30,java.util.concurrent.TimeUnit.SECONDS);}catch(Exception e){return false;}
+    }
     // immersive tracks Plyr's fallback fullscreen state (set via the
     // AndroidApi.setFullscreen bridge) so onWindowFocusChanged can re-hide the
     // system bars after a focus loss while fullscreen is active.
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     @SuppressWarnings("deprecation")
-    @Override public void onCreate(Bundle state) { super.onCreate(state); backend=new Backend(this); web=new WebView(this); web.setBackgroundColor(0xff0f0f0f); WebSettings s=web.getSettings(); s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setMediaPlaybackRequiresUserGesture(false); s.setAllowFileAccess(true); s.setAllowUniversalAccessFromFileURLs(true); s.setUserAgentString("Elsnime Android");
+    @Override public void onCreate(Bundle state) { super.onCreate(state); backend=new Backend(this); web=new WebView(this); web.setBackgroundColor(0xff0f0f0f); WebSettings s=web.getSettings(); s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setMediaPlaybackRequiresUserGesture(false); s.setAllowFileAccess(true); s.setAllowUniversalAccessFromFileURLs(true);
+        // Present the scraper's browser UA to the CDN: hls.js fetches the
+        // manifest/segments via XHR, and JS cannot override the User-Agent
+        // header (it's a forbidden header), so the WebView's own UA is what
+        // the CDN sees. "Elsnime Android" was getting those requests blocked;
+        // the Chrome fingerprint matches the one the scraper resolved the
+        // stream with (the Referer is stamped per-request in player.js).
+        s.setUserAgentString(AniDbScraper.UA);
         // The page declares color-scheme (meta + CSS) and themes itself; the
         // real system theme is read natively via AndroidApi.systemTheme(),
         // because WebView's prefers-color-scheme is unreliable across devices.
@@ -31,6 +68,14 @@ public final class MainActivity extends Activity {
             @Override public boolean onJsConfirm(WebView v, String url, String message, JsResult result) { result.cancel(); return true; }
         });
         web.addJavascriptInterface(new AndroidApi(web,backend),"AndroidApi"); setContentView(web); web.loadUrl("file:///android_asset/ui.html"); }
+    @Override public void onRequestPermissionsResult(int code,String[] perms,int[] grants){
+        super.onRequestPermissionsResult(code,perms,grants);
+        if(code==STORAGE_PERMISSION_REQUEST&&storagePermissionFuture!=null){
+            boolean ok=grants!=null&&grants.length>0&&grants[0]==android.content.pm.PackageManager.PERMISSION_GRANTED;
+            storagePermissionFuture.complete(ok);
+            storagePermissionFuture=null;
+        }
+    }
     @SuppressWarnings("deprecation")
     @Override public void onBackPressed(){
         // The UI is a single-page app with its own view stack, so the Android
@@ -96,14 +141,17 @@ public final class MainActivity extends Activity {
     }
 
     static final class AndroidApi {
-        private final WebView view; private final Backend backend; AndroidApi(WebView v,Backend b){view=v;backend=b;}
+        private final WebView view; private final Backend backend; AndroidApi(WebView v,Backend b){view=v;backend=b;
+            // Downloader progress events (background thread) → WebView main thread.
+            backend.setDownloadListener(ev->view.post(()->view.evaluateJavascript("window.__downloadEvent("+ev.toString()+")",null)));
+        }
         // True system theme regardless of WebView support — works on every API level.
         @JavascriptInterface public String systemTheme(){
             int mode = view.getContext().getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
             return mode == android.content.res.Configuration.UI_MODE_NIGHT_YES ? "dark" : "light";
         }
         @JavascriptInterface public void request(final String id,final String method,final String path,final String body){backend.executor.execute(()->{String result=backend.handle(method,path,body); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
-        @JavascriptInterface public void playInMpv(final String id,final String animeId,final String episode,final String type,final String referer,final String userAgent){backend.executor.execute(()->{String result=backend.playInMpv(animeId,episode,type,referer,userAgent); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
+        @JavascriptInterface public void playInMpv(final String id,final String animeId,final String animeTitle,final String episode,final String type,final String referer,final String userAgent){backend.executor.execute(()->{String result=backend.playInMpv(animeId,animeTitle,episode,type,referer,userAgent); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
         // Plyr fallback fullscreen state (called from player.js on
         // enterfullscreen/exitfullscreen): hide the system bars + rotate to
         // landscape for the duration, restore on exit. The last requested
@@ -129,11 +177,30 @@ public final class MainActivity extends Activity {
         // Runs synchronously on the JS bridge thread (a background thread) so the
         // clear is guaranteed to finish before the reload requests are dispatched.
         @JavascriptInterface public void refreshCache(final String prefixes){backend.refreshCache(prefixes);}
+        // Downloads: start resolves the stream + enqueues on the native worker;
+        // progress/state is pushed back through window.__downloadEvent. The
+        // storage permission prompt (legacy Android) happens on the bridge thread
+        // before anything is enqueued.
+        @JavascriptInterface public void startDownload(final String id,final String uid,final String animeId,final String animeTitle,final String episode,final String type,final String quality){
+            backend.executor.execute(()->{
+                if(!MainActivity.ensureStoragePermission(view)){view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote("{\"error\":\"Storage permission denied\"}")+")",null));return;}
+                String result=backend.startDownload(uid,animeId,animeTitle,episode,type,quality);
+                view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));
+            });
+        }
+        @JavascriptInterface public void cancelDownload(final String id,final String animeId,final String episode){backend.executor.execute(()->{backend.cancelDownload(animeId,episode);view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote("{\"ok\":true}")+")",null));});}
+        @JavascriptInterface public void removeDownload(final String id,final String animeId,final String animeTitle,final String episode){backend.executor.execute(()->{String result=backend.removeDownload(animeId,animeTitle,episode);view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
+        @JavascriptInterface public void listDownloads(final String id){backend.executor.execute(()->{String result=backend.downloadsList();view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
+        // Settings > Remove all downloads: cancel active tasks and delete every
+        // file in Movies/Elsnime.
+        @JavascriptInterface public void clearDownloads(final String id){backend.executor.execute(()->{String result=backend.clearDownloads();view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
         private String saveProgressResult(final String animeId,final String animeTitle,final String episode,final double progress,final double duration,final String thumbnail,final boolean force){try{return backend.saveProgress(new JSONObject().put("anime_id",animeId).put("anime_title",animeTitle).put("episode",episode).put("progress",progress).put("duration",duration).put("thumbnail",thumbnail),force);}catch(Exception e){return "{\"error\":\"save failed\"}";}}
     }
 
     static final class Backend {
         final ExecutorService executor=Executors.newCachedThreadPool(); final AniDbScraper scraper=new AniDbScraper(); final HistoryDb db;
+        final Downloader downloader;
+        private volatile java.util.function.Consumer<JSONObject> downloadListener;
         private final java.util.concurrent.CopyOnWriteArrayList<Process> mpvProcesses=new java.util.concurrent.CopyOnWriteArrayList<>();
         // Progress batcher: keep only the latest entry per anime/episode in memory,
         // flush to SQLite in one transaction every 4s (or immediately when forced).
@@ -146,7 +213,28 @@ public final class MainActivity extends Activity {
             public void put(String key,String value,long ttl){db.cachePut(key,value,ttl);}
             public void clear(){db.cacheClear();}
             public void clearPrefix(String prefix){db.cacheClearPrefix(prefix);}
-        });scraper.setTransport(CronetTransport.create(appContext));}
+        });scraper.setTransport(CronetTransport.create(appContext));
+        // Downloader pushes raw JSON events; AndroidApi forwards them to the page.
+        downloader=new Downloader(appContext,scraper,ev->{java.util.function.Consumer<JSONObject> l=downloadListener;if(l!=null)l.accept(ev);});
+        }
+        void setDownloadListener(java.util.function.Consumer<JSONObject> l){downloadListener=l;}
+        String startDownload(String uid,String animeId,String animeTitle,String episode,String type,String quality){
+            try{
+                String key=animeId+"|"+episode;
+                if(downloader.isActive(key))return "{\"active\":true}";
+                JSONObject f=downloader.findFile(animeTitle,episode);
+                if(f!=null)return new JSONObject().put("exists",true).put("fileName",f.optString("fileName")).toString();
+                downloader.start(new JSONObject().put("uid",uid).put("anime_id",animeId).put("anime_title",animeTitle).put("episode",episode).put("type",type).put("quality",quality));
+                return ok();
+            }catch(Exception e){try{return new JSONObject().put("error",e.getMessage()==null?"Download failed":e.getMessage()).toString();}catch(Exception ignored){return "{\"error\":\"Download failed\"}";}}
+        }
+        void cancelDownload(String animeId,String episode){downloader.cancel(animeId+"|"+episode);}
+        String removeDownload(String animeId,String animeTitle,String episode){
+            downloader.cancel(animeId+"|"+episode);
+            try{return downloader.deleteFile(animeTitle,episode)?ok():new JSONObject().put("error","File not found").toString();}catch(Exception e){return "{\"error\":\"Delete failed\"}";}
+        }
+        String downloadsList(){try{return new JSONObject().put("files",downloader.listFiles()).toString();}catch(Exception e){return "{\"files\":[]}";}}
+        String clearDownloads(){try{return new JSONObject().put("deleted",downloader.deleteAll()).toString();}catch(Exception e){return "{\"error\":\"Could not clear downloads\"}";}}
         String mpvStatus(){
             boolean cli=mpvCliAvailable(), app=mpvAppAvailable();
             try{return new JSONObject().put("cli",cli).put("app",app).put("available",cli||app).toString();}catch(Exception ignored){return "{\"available\":false}";}
@@ -161,9 +249,15 @@ public final class MainActivity extends Activity {
             return null;
         }
         private boolean mpvCliAvailable(){return mpvCliPath()!=null;}
-        private boolean mpvAppAvailable(){
-            try{appContext.getPackageManager().getPackageInfo("is.mpv.android",0);return true;}catch(Exception ignored){return false;}
+        // mpv-android renamed from is.mpv.android to is.xyz.mpv in v1.4.0 — check
+        // both so the MPV button shows for every install (Play/F-Droid/GitHub).
+        private String mpvAppPackage(){
+            for(String pkg:new String[]{"is.xyz.mpv","is.mpv.android"}){
+                try{appContext.getPackageManager().getPackageInfo(pkg,0);return pkg;}catch(Exception ignored){}
+            }
+            return null;
         }
+        private boolean mpvAppAvailable(){return mpvAppPackage()!=null;}
         String saveProgress(JSONObject entry,boolean force){
             String key=entry.optString("anime_id")+"|"+entry.optString("episode");
             synchronized(pendingProgress){pendingProgress.put(key,entry);}
@@ -181,7 +275,7 @@ public final class MainActivity extends Activity {
             }
             db.saveBatch(batch);
         }
-        String playInMpv(String animeId,String episode,String type,String referer,String userAgent){
+        String playInMpv(String animeId,String animeTitle,String episode,String type,String referer,String userAgent){
             JSONObject out=new JSONObject();
             try{
                 JSONObject stream=scraper.stream(animeId,episode,type);
@@ -189,19 +283,30 @@ public final class MainActivity extends Activity {
                 // The stream result carries the embed page the manifest was fetched
                 // from — mpv must present it (plus the browser UA) to load the CDN.
                 String streamReferer=stream.optString("referer",referer);
+                String title=((animeTitle==null||animeTitle.isEmpty())?"Anime":animeTitle)+" - Episode "+episode;
                 out.put("url",url).put("raw",stream.optString("raw",url)).put("type",stream.opt("type"));
                 if(url.isEmpty())return out.put("error","No stream available").toString();
-                if(mpvCliAvailable())launchMpv(url,streamReferer,userAgent);
-                else if(mpvAppAvailable())launchMpvApp(url);
-                else return out.put("error","MPV is not installed on this device").toString();
-                return out.put("ok",true).toString();
+                // ani-cli's Termux flow: launch mpv-android via an ACTION_VIEW
+                // intent (URL + title extra). Referer/UA can't ride on the intent,
+                // so the per-playback flags are written to the same include file
+                // ani-cli uses. The CLI binary path is kept as a fallback for
+                // rooted setups where exec works.
+                String pkg=mpvAppPackage();
+                if(pkg!=null)launchMpvApp(url,title,streamReferer,userAgent,pkg);
+                else if(mpvCliAvailable())launchMpv(url,title,streamReferer,userAgent);
+                else return out.put("error","MPV is not installed. Install mpv-android (is.xyz.mpv) from the Play Store or F-Droid.").toString();
+                return out.put("ok",true).put("app",pkg!=null).toString();
             }catch(Exception e){try{return out.put("error",e.getMessage()==null?"Failed to launch MPV":e.getMessage()).toString();}catch(Exception ignored){return "{\"error\":\"Failed to launch MPV\"}";}}
         }
-        private void launchMpv(String url,String referer,String userAgent)throws Exception{
+        private void launchMpv(String url,String title,String referer,String userAgent)throws Exception{
             String binary=mpvCliPath();
             if(binary==null)throw new Exception("Could not launch MPV. Check if mpv is installed.");
             Process p;
-            try{p=new ProcessBuilder(binary,"--referrer="+referer,"--user-agent="+userAgent,"--force-window=yes",url).redirectErrorStream(true).start();}
+            try{
+                p=new ProcessBuilder(binary,"--no-stdin","--tls-verify=no","--force-window=yes",
+                    "--force-media-title="+title,"--referrer="+referer,"--user-agent="+userAgent,url)
+                    .redirectErrorStream(true).start();
+            }
             catch(java.io.IOException e){throw new Exception("Could not launch MPV. Check if mpv is installed.");}
             // Health check: on stock Android the binary can be world-executable yet
             // still die instantly (SELinux blocks cross-app exec, missing libs), so
@@ -213,17 +318,49 @@ public final class MainActivity extends Activity {
             mpvProcesses.add(p);
             new Thread(()->{try{java.io.BufferedReader br=new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()));while(br.readLine()!=null){}}catch(Exception ignored){}try{p.waitFor();}catch(Exception ignored){}mpvProcesses.remove(p);},"mpv-pump").start();
         }
-        private void launchMpvApp(String url)throws Exception{
-            // NOTE: the mpv-android intent spec only supports decode_mode/subs/
-            // position/title extras — referer/user-agent can't be passed, so the
-            // stream must play without them (or the user sets a global referer in
-            // mpv-android's advanced settings). Playback errors show in the app.
+        private void launchMpvApp(String url,String title,String referer,String userAgent,String pkg)throws Exception{
+            // ani-cli's android_mpv: am start -a VIEW -d <url> -e title <title>.
+            // mpv-android's intent extras are title/subs/position/decode_mode — no
+            // referer or UA — so those are pushed through the config include below
+            // (and mpv-android also has a global User-Agent in its own settings).
             android.content.Intent i=new android.content.Intent(android.content.Intent.ACTION_VIEW);
             i.setData(android.net.Uri.parse(url));
-            i.setPackage("is.mpv.android");
+            i.setPackage(pkg);
+            i.putExtra("title",title);
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             if(i.resolveActivity(appContext.getPackageManager())==null)throw new Exception("MPV app could not open this stream.");
+            writeMpvFlags(referer,userAgent);
             appContext.startActivity(i);
+        }
+        // Best-effort mirror of ani-cli's android_mpv: write the per-playback flags
+        // (tls, referer, UA) to /storage/emulated/0/mpv/mpv.config.mp4. Users who
+        // add include='/storage/emulated/0/mpv/mpv.config.mp4' to MPV > Settings >
+        // Advanced > mpv.conf get them automatically, so the CDN sees the same
+        // referer/UA the WebView sends. Silently skipped when scoped storage (or a
+        // locked-down device) blocks the write.
+        // NOTE: unlike ani-cli (which clears the file on exit) this is overwritten
+        // on every launch but never cleared — a stale referer/UA may linger for
+        // manually-launched mpv sessions until the next Elsnime play.
+        private void writeMpvFlags(String referer,String userAgent){
+            try{
+                java.io.File dir=new java.io.File("/storage/emulated/0/mpv");
+                if(!dir.exists()&&!dir.mkdirs())return;
+                StringBuilder sb=new StringBuilder();
+                sb.append("tls-verify=no\n");
+                String ua=sanitizeConfigValue(userAgent);
+                String ref=sanitizeConfigValue(referer);
+                if(!ua.isEmpty())sb.append("user-agent=").append(ua).append('\n');
+                if(!ref.isEmpty())sb.append("http-header-fields=Referer: ").append(ref).append('\n');
+                java.io.File f=new java.io.File(dir,"mpv.config.mp4");
+                try(java.io.FileOutputStream os=new java.io.FileOutputStream(f)){
+                    os.write(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+            }catch(Exception ignored){}
+        }
+        // Config values become one mpv.conf line; strip anything that could break
+        // out of the option=value line (newlines, the list separator, comments).
+        private static String sanitizeConfigValue(String s){
+            return s==null?"":s.replace('\r',' ').replace('\n',' ').replace(';',' ').replace('#',' ').trim();
         }
         void refreshCache(String prefixes){
             if(prefixes==null||prefixes.trim().isEmpty())return;
@@ -241,9 +378,13 @@ public final class MainActivity extends Activity {
             if(method.equals("GET")&&path.equals("/api/tags"))return scraper.tags().toString();
             if(method.equals("GET")&&path.equals("/api/aniskip"))return scraper.skipTimes(p.q("title"), p.q("episode")).toString();
             if(method.equals("GET")&&path.equals("/api/home"))return new JSONObject().put("trending",scraper.trending()).put("history",db.history()).toString();
-            if(path.equals("/api/history")&&method.equals("GET"))return db.history().toString();
+            if(path.equals("/api/history")&&method.equals("GET"))return db.history(p.q("anime_id")).toString();
             if(path.equals("/api/history")&&method.equals("POST")){db.save(new JSONObject(body));return ok();}
-            if(path.startsWith("/api/history/")&&method.equals("DELETE")){db.delete(Integer.parseInt(path.substring(14)));return ok();}
+            // Clear-all (Settings > Clear history): one DELETE, no fetch needed.
+            if(path.equals("/api/history")&&method.equals("DELETE")){db.clearHistory();return ok();}
+            if(path.startsWith("/api/history/anime/")&&method.equals("DELETE")){db.deleteByAnime(path.substring(19));return ok();}
+            if(path.startsWith("/api/history/")&&method.equals("DELETE")){db.delete(Integer.parseInt(path.substring(13)));return ok();}
+            if(path.equals("/api/watched")&&method.equals("POST")){db.markWatchedUpto(new JSONObject(body));return ok();}
             if(path.equals("/api/settings")&&method.equals("GET"))return db.settings().toString();
             if(path.equals("/api/settings")&&method.equals("POST")){db.settings(new JSONObject(body));return ok();}
             return new JSONObject().put("error","Not found").toString();
@@ -302,10 +443,15 @@ public final class MainActivity extends Activity {
                 }
             }catch(Exception ignored){}
         }
-        JSONArray history() throws Exception {
+        JSONArray history() throws Exception { return history(null); }
+        JSONArray history(String animeId) throws Exception {
             JSONArray result = new JSONArray();
+            boolean filter = animeId != null && !animeId.isEmpty();
+            // Per-series lists need every episode row of the series' histories, so
+            // the cap is generous (a marked-watched series stores one row per
+            // episode; 5000 covers even the longest-running series).
             try (Cursor c = getReadableDatabase().query(
-                    "history", null, null, null, null, null, "last_watched DESC", "100")) {
+                    "history", null, filter ? "anime_id=?" : null, filter ? new String[]{animeId} : null, null, null, "last_watched DESC", "5000")) {
                 while (c.moveToNext()) {
                     JSONObject row = new JSONObject();
                     row.put("id", c.getInt(c.getColumnIndexOrThrow("id")));
@@ -325,7 +471,46 @@ public final class MainActivity extends Activity {
         void save(JSONObject x){getWritableDatabase().insertWithOnConflict("history",null,values(x),SQLiteDatabase.CONFLICT_REPLACE);}
         void saveBatch(java.util.List<JSONObject> rows){SQLiteDatabase d=getWritableDatabase();d.beginTransaction();try{for(JSONObject x:rows)d.insertWithOnConflict("history",null,values(x),SQLiteDatabase.CONFLICT_REPLACE);d.setTransactionSuccessful();}finally{d.endTransaction();}}
         void delete(int id){getWritableDatabase().delete("history","id=?",new String[]{String.valueOf(id)});}
-        JSONObject settings() throws Exception{JSONObject o=new JSONObject().put("hw_accel",false).put("sub_lang","sub").put("player","web").put("theme","auto").put("aniskip","on").put("performance_mode","auto").put("accent_h",239);try(Cursor c=getReadableDatabase().query("settings",new String[]{"key","value"},null,null,null,null,null)){while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);try{o.put(k,new JSONTokener(v).nextValue());}catch(Exception ignored){}}}return o;}
+        void deleteByAnime(String animeId){getWritableDatabase().delete("history","anime_id=?",new String[]{animeId});}
+        // Wipe the whole table in one statement — Settings' "Clear history"
+        // calls this directly, so it never depends on a prior fetch.
+        void clearHistory(){getWritableDatabase().delete("history",null,null);}
+        // "Mark as watched" sets a watched-through boundary: episodes up to the
+        // given index become watched, and episodes past it that were marked by a
+        // previous press (progress=1, duration=1) revert to unwatched. Runs in
+        // one transaction so a long episode list can't leave the table half-updated.
+        void markWatchedUpto(JSONObject x){
+            String animeId=x.optString("anime_id");
+            String animeTitle=x.optString("anime_title");
+            String thumbnail=x.optString("thumbnail");
+            JSONArray episodes=x.optJSONArray("episodes");
+            int upto=x.optInt("upto_index",-1);
+            if(animeId.isEmpty()||episodes==null||upto<0||upto>=episodes.length())return;
+            SQLiteDatabase d=getWritableDatabase();
+            d.beginTransaction();
+            try{
+                long ts=System.currentTimeMillis()/1000;
+                for(int i=0;i<=upto;i++){
+                    ContentValues v=new ContentValues();
+                    v.put("anime_id",animeId);
+                    v.put("anime_title",animeTitle);
+                    v.put("episode",episodes.optString(i));
+                    v.put("progress",1.0);
+                    v.put("duration",1.0);
+                    v.put("thumbnail",thumbnail);
+                    v.put("last_watched",ts);
+                    d.insertWithOnConflict("history",null,v,SQLiteDatabase.CONFLICT_REPLACE);
+                }
+                // Revert the watched-through boundary: only rows written by the
+                // button itself (progress=1, duration=1) are removed, so episodes
+                // the user actually watched to completion keep their state.
+                for(int i=upto+1;i<episodes.length();i++){
+                    d.delete("history","anime_id=? AND episode=? AND progress=1 AND duration=1",new String[]{animeId,episodes.optString(i)});
+                }
+                d.setTransactionSuccessful();
+            }finally{d.endTransaction();}
+        }
+        JSONObject settings() throws Exception{JSONObject o=new JSONObject().put("hw_accel",false).put("sub_lang","sub").put("player","web").put("theme","auto").put("aniskip","on").put("performance_mode","auto").put("accent_h",239).put("quality","720");try(Cursor c=getReadableDatabase().query("settings",new String[]{"key","value"},null,null,null,null,null)){while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);try{o.put(k,new JSONTokener(v).nextValue());}catch(Exception ignored){}}}return o;}
         void settings(JSONObject x){
             SQLiteDatabase d=getWritableDatabase();
             JSONArray names=x.names();

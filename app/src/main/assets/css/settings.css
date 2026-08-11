@@ -68,7 +68,7 @@
 	background: transparent;
 	color: var(--text-secondary);
 	border-radius: 999px;
-	font-family: "Inter", sans-serif;
+	font-family: sans-serif;
 	font-size: 13px;
 	font-weight: 600;
 	cursor: pointer;
@@ -93,6 +93,54 @@
 	display: none;
 }
 
+/* Stacked settings row: label above a wide segmented control (Default Quality
+   has five options, so it sits on its own line instead of beside the label). */
+.settings-row--stack {
+	flex-direction: column;
+	align-items: stretch;
+	gap: 8px;
+	padding: 10px 16px;
+}
+
+/* Default Quality — five options don't fit the inline pill, so the slider
+   becomes a full-width segmented grid with equal cells (ID-scoped so it beats
+   the generic .settings-row--stack .pill-slider rule above). */
+#pill-quality {
+	align-self: stretch;
+	display: grid;
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+	gap: 3px;
+	padding: 3px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
+#pill-quality .pill-option {
+	padding: 9px 2px;
+	font-size: 13px;
+	text-align: center;
+	border: 0;
+	border-radius: calc(var(--radius-md) - 3px);
+	background: transparent;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+/* :not(.active) — hovering the selected option must never replace its accent
+   fill (touch WebViews stick :hover after a tap). */
+#pill-quality .pill-option:not(.active):hover {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}
+
+#pill-quality .pill-option.active {
+	background: var(--accent-primary);
+	color: var(--on-accent);
+	font-weight: 700;
+}
+
 /* Data / action buttons */
 .soft-btn,
 .danger-btn,
@@ -100,7 +148,7 @@
 	padding: 9px 18px;
 	border-radius: var(--radius-md);
 	border: 0;
-	font-family: "Inter", sans-serif;
+	font-family: sans-serif;
 	font-size: 14px;
 	font-weight: 600;
 	cursor: pointer;

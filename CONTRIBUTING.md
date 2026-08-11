@@ -1,27 +1,10 @@
 # Contributing to Elsnime
 
-Before contributing, read [HACKING.md](HACKING.md) to understand the project's hybrid architecture and database designs.
+Read [HACKING.md](HACKING.md) first for an overview of the architecture and database design. Be respectful and collaborative.
 
----
+## Setup
 
-## Code of Conduct
-
-By participating in this project, you agree to maintain a respectful, welcoming, and collaborative environment.
-
----
-
-## Getting Started
-
-### 1. Prerequisites
-
-- **Java Development Kit (JDK)**: Version 17 or higher.
-- **Android SDK**: Command Line Tools or Android Studio.
-- **Node.js (Optional)**: If you plan on running automated formatting or local linters on the asset folder.
-- **Python 3**: For running the local web server (`app.py`) during UI development.
-
-### 2. Setting Up Your Workspace
-
-Clone the repository and verify the Gradle environment by requesting a help build:
+You need JDK 17+ and the Android SDK. Node.js is optional for checking frontend JavaScript.
 
 ```bash
 git clone https://github.com/adrianpriza-ai/elsnime.git
@@ -29,85 +12,46 @@ cd elsnime
 ./gradlew help
 ```
 
----
+## Development Guidelines
 
-## UI & Frontend Guidelines
+### Frontend
 
-All frontend assets are located in `app/src/main/assets/`.
+Frontend files live in `app/src/main/assets/`.
 
-- **Keep it Lightweight**: Write clean, modern vanilla JavaScript and CSS variables. Do not introduce large, external dependencies (e.g., React, Vue, jQuery) into the asset folders.
-- **YouTube-Style Aesthetic**: Maintain a minimal visual style. Use black (`#0f0f0f`) or very dark gray for backgrounds, light gray (`#f1f1f1`) for text, and standard gray colors for borders and lines.
-- **Accessibility (a11y)**:
-  - Keep active buttons clickable with clear hover boundaries (`--bg-hover` is standard).
-  - Use appropriate focus state properties. For example, modal overlays and picker sheets should restore focus to the last-active elements when dismissed.
-- **Cross-Device Performance**: Test views on multiple layout widths. Entering fullscreen rotates the player to landscape on phones and hides the system bars; outside fullscreen the bars stay visible. Ensure your layouts are fully responsive.
+- Use vanilla JavaScript and CSS; avoid large dependencies.
+- Match the existing dark, minimal design.
+- Preserve keyboard focus, hover states, and accessibility.
+- Keep layouts responsive across screen sizes and orientations.
 
----
+### Backend
 
-## Backend & Java Guidelines
+Java source lives in `app/src/main/java/com/elsnime/`.
 
-The backend source is located in `app/src/main/java/com/elsnime/`.
-
-- **Asynchronous Execution**: All scraping (`AniDbScraper`), network queries (`CronetTransport`), and database operations (`HistoryDb`) MUST run on background threads using the cached thread pool (`backend.executor.execute(...)`). Never block the main UI thread.
-- **Error Propagation**: Handle parser changes and networking failures without crashing. Return JSON response structures with an `"error"` message key so the frontend can show a toast notification.
-- **Cache Compliance**: When making new queries, check if the data can be cached using `cachedArray` or `cachedObject` helpers. Avoid hardcoding standard values; use TTL values based on how frequently the source updates (e.g., `TTL_DAY` for search indexing, `TTL_HOUR` for episodic scrapers).
-- **No Intrusive Permissions**: We maintain a strict privacy-conscious model. Do not introduce features that require invasive device access, location tracking, contacts, or storage write/read permissions.
-
----
+- Run network, scraping, database, and download work on `backend.executor`; never block the UI thread.
+- Return failures as JSON with an `"error"` key instead of crashing.
+- Use the existing cache helpers and suitable TTL constants.
+- Avoid unnecessary Android permissions; prefer MediaStore and scoped storage.
 
 ## Reporting Issues
 
-If you find a bug, crash, or unexpected behavior, [open an issue](https://github.com/adrianpriza-ai/elsnime/issues/new/choose) using the appropriate template:
+[Open an issue](https://github.com/adrianpriza-ai/elsnime/issues/new/choose) with:
 
-- **Bug Report**: For crashes, playback failures, UI glitches, or broken scrapers.
-- **Feature Request**: For suggesting new features or improvements.
+- Device model, Android/API version, and app version or commit.
+- Clear reproduction steps and expected versus actual behavior.
+- Relevant screenshots or `adb logcat` output.
 
-### What to Include in a Bug Report
+Feature requests should explain the use case and any alternatives considered.
 
-Provide as much of the following as possible:
+## Pull Requests
 
-1. **Device & OS**: Android version (e.g., `14 / API 34`) and device model (e.g., `Pixel 7`).
-2. **App Version**: The version string or commit hash you are running.
-3. **Steps to Reproduce**: A numbered list of actions that reliably trigger the issue.
-4. **Expected vs. Actual Behavior**: What you expected to happen versus what actually occurred.
-5. **Screenshots or Logs**: Attach screenshots or paste relevant `adb logcat` output.
+1. Create a descriptive branch, such as `feature/search-highlights` or `fix/player-crash`.
+2. Keep changes focused and match the surrounding code style.
+3. Validate your work:
 
-### What to Include in a Feature Request
-- A clear description of the feature and its use case.
-- Any alternative approaches you have considered.
-- Mockups or examples, if applicable.
+   ```bash
+   ./gradlew assembleDebug
+   node --check app/src/main/assets/js/<changed-file>.js  # for JS changes
+   ```
 
----
-
-## Submission Process
-
-### 1. Create a Branch
-Create a descriptive branch from the main branch:
-```bash
-git checkout -b feature/ImprovedSearchHighlights
-# OR
-git checkout -b fix/MpvIntentCrash
-```
-
-### 2. Code Quality Check
-
-Before submitting:
-- Run a compile pass locally to confirm there are no compilation errors:
-  ```bash
-  ./gradlew assembleDebug
-  ```
-- Keep code clean and match the indentation style of the surrounding codebase.
-
-### 3. Commit Your Changes
-
-Write commit messages in the imperative mood:
-```
-Add: Support for subtitle language preferences in MPV intent launcher
-Fix: Double-tap gestures ignoring slider boundaries on the player controls
-```
-
-### 4. Open a Pull Request
-
-- Push your branch to your fork.
-- Submit a Pull Request targeting the main branch.
-- Describe what the PR does, which files are modified, and how to manually verify the changes.
+4. Use a clear, imperative commit message, such as `Fix player gesture boundaries`.
+5. Open a PR against `main` describing what changed and how to verify it.

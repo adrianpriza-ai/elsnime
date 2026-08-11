@@ -72,7 +72,9 @@ function playFirstEp() {
 async function getHistoryMap() {
   let historyMap = {};
   try {
-    const allHistory = await api.get('/api/history');
+    // The backend filters by anime_id so the episode grid stays fast even with
+    // a large history table; the client re-checks for dev backends.
+    const allHistory = await api.get('/api/history?anime_id=' + encodeURIComponent(S.anime.id));
     if (Array.isArray(allHistory)) {
       allHistory.forEach(h => {
         if (h.anime_id === S.anime.id) {
@@ -107,6 +109,8 @@ async function renderEpisodes() {
   // Fetch history for this anime to show progress dots
   const historyMap = await getHistoryMap();
   grid.innerHTML = S.episodes.map((ep, i) => episodeRowHTML(ep, i, historyMap, false, i === 0)).join('');
+  refreshEpisodeDownloadButtons();
+  refreshDownloadAllButton();
 }
 
 // One YouTube-style suggestion row: thumbnail + "Ep N" chip + title + state.
@@ -126,7 +130,10 @@ function episodeRowHTML(ep, i, historyMap, isActive, isUpNext) {
   if (isActive) meta.push('Now playing');
   if (stateLabel) meta.push(stateLabel);
   const upNext = isUpNext ? '<span class="upnext-tag">UP NEXT</span>' : '';
-  return `<button class="yt-ep-row ${stateClass} ${isActive ? 'active' : ''}" onclick="playEpisode('${ep}', ${i})">
+  // Row + download button wrapped in a flex container (a <button> can't nest
+  // another <button>). The download state is refreshed by downloads.js.
+  return `<div class="yt-ep-wrap">
+  <button class="yt-ep-row ${stateClass} ${isActive ? 'active' : ''}" onclick="playEpisode('${ep}', ${i})">
     <span class="yt-ep-thumb">
       <img src="${img}" alt="" loading="lazy" onerror="this.style.display='none'">
       <span class="yt-ep-chip">Ep ${ep}</span>
@@ -137,7 +144,11 @@ function episodeRowHTML(ep, i, historyMap, isActive, isUpNext) {
       <span class="yt-ep-meta">${meta.join(' · ')}</span>
     </span>
     ${upNext}
-  </button>`;
+  </button>
+  <button class="yt-ep-dl" data-ep="${ep}" onclick="toggleEpisodeDownload(event, '${ep}')" aria-label="Download episode" title="Download episode">
+    <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+  </button>
+  </div>`;
 }
 
 async function switchTranslation(lang, btn) {

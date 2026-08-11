@@ -1,5 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Downloads: direct public-dir writes on API 23-28 only; API 29+ uses
+         MediaStore (no permission). maxSdkVersion keeps it off Android 10+. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- External player detection: Android 11+ (API 30+) hides other apps'
+         packages from PackageManager unless they're declared in <queries>.
+         Without this, mpvStatus() can't see mpv-android even when installed. -->
+    <queries>
+        <package android:name="is.xyz.mpv" />
+        <package android:name="is.mpv.android" />
+    </queries>
     <application android:theme="@style/AppTheme" android:label="Elsnime" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:screenOrientation="unspecified" android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode" android:exported="true">
             <intent-filter>

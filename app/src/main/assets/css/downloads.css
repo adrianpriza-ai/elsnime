@@ -1,0 +1,295 @@
+/* downloads.css — Downloads tab: queue UI, progress bars, download buttons */
+
+.downloads-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	padding: 48px 20px;
+	text-align: center;
+	color: var(--text-muted);
+}
+
+.downloads-empty svg {
+	width: 42px;
+	height: 42px;
+	fill: none;
+	stroke: var(--text-muted);
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	opacity: 0.7;
+}
+
+.downloads-empty div {
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--text-secondary);
+}
+
+.downloads-empty p {
+	font-size: 13px;
+	line-height: 1.5;
+	margin: 0;
+	max-width: 260px;
+}
+
+.dl-item {
+	display: flex;
+	gap: 12px;
+	padding: 12px;
+	margin-bottom: 10px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+}
+
+.dl-thumb {
+	flex-shrink: 0;
+	width: 56px;
+	aspect-ratio: 2 / 3;
+	border-radius: var(--radius-md);
+	overflow: hidden;
+	background: var(--surface-2);
+}
+
+.dl-thumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.dl-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.dl-top {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.dl-title {
+	flex: 1;
+	min-width: 0;
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--text-primary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.dl-state {
+	flex-shrink: 0;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.4px;
+	text-transform: uppercase;
+	color: var(--text-muted);
+	background: var(--surface-2);
+	padding: 3px 8px;
+	border-radius: 999px;
+}
+
+.dl-state.state-queued,
+.dl-state.state-resolving,
+.dl-state.state-downloading,
+.dl-state.state-remuxing,
+.dl-state.state-cancelling,
+.dl-state.state-deleting {
+	color: var(--accent-primary);
+	background: var(--accent-soft);
+}
+
+.dl-state.state-done,
+.dl-state.state-exists {
+	color: var(--success);
+	background: rgba(47, 191, 113, 0.12);
+}
+
+.dl-state.state-error {
+	color: var(--danger);
+	background: var(--danger-bg);
+}
+
+.dl-sub {
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--text-muted);
+	margin-top: 2px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.dl-bar {
+	margin-top: 8px;
+	height: 4px;
+	border-radius: 999px;
+	background: var(--track-bg);
+	overflow: hidden;
+}
+
+.dl-bar-fill {
+	height: 100%;
+	border-radius: 999px;
+	background: var(--accent-primary);
+	transition: width var(--transition-normal);
+}
+
+.dl-bar.is-full .dl-bar-fill {
+	background: var(--success);
+}
+
+.dl-bar.is-indeterminate .dl-bar-fill {
+	width: 30% !important;
+	animation: dl-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes dl-indeterminate {
+	0% {
+		transform: translateX(-100%);
+	}
+	100% {
+		transform: translateX(340%);
+	}
+}
+
+.dl-meta {
+	font-size: 11px;
+	color: var(--text-muted);
+	margin-top: 4px;
+	min-height: 14px;
+}
+
+.dl-actions {
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	justify-content: center;
+}
+
+.dl-btn {
+	padding: 6px 12px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: none;
+	color: var(--text-secondary);
+	font-family: sans-serif;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	white-space: nowrap;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.dl-btn:hover {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}
+
+.dl-btn.danger {
+	color: var(--danger);
+	border-color: var(--danger-strong);
+}
+
+.dl-btn.danger:hover {
+	background: var(--danger-bg);
+}
+
+/* Episode-row download button (detail grid + Up next sidebar) */
+
+.yt-ep-wrap {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.yt-ep-wrap .yt-ep-row {
+	flex: 1;
+	min-width: 0;
+}
+
+.yt-ep-dl {
+	flex-shrink: 0;
+	width: 34px;
+	height: 34px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 50%;
+	background: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.yt-ep-dl svg {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.yt-ep-dl:hover {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}
+
+.yt-ep-dl.is-active {
+	color: var(--accent-primary);
+}
+
+.yt-ep-dl.is-active svg {
+	animation: dl-pulse 1s ease-in-out infinite;
+}
+
+@keyframes dl-pulse {
+	0%,
+	100% {
+		transform: scale(1);
+		opacity: 1;
+	}
+	50% {
+		transform: scale(0.8);
+		opacity: 0.6;
+	}
+}
+
+.yt-ep-dl.is-done {
+	color: var(--success);
+}
+
+/* Ghost "Download All" button next to Play */
+
+.yt-play-btn--ghost {
+	background: transparent;
+	border: 1px solid var(--border);
+	color: var(--text-primary);
+}
+
+.yt-play-btn--ghost:hover {
+	background: var(--bg-hover);
+}
+
+/* Player Download action button */
+
+#btn-download-ep.is-done {
+	color: var(--success);
+}
+
+#btn-download-ep .btn-icon {
+	display: inline-flex;
+}

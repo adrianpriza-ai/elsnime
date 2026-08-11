@@ -1,9 +1,9 @@
 //  Core: Toast system, app state, navigation, API bridge, settings 
-// Settings persist through /api/settings (SQLite on Android, app.py in dev);
+// Settings persist through /api/settings (SQLite on Android);
 // the old localStorage mirror layer was dropped — Java owns the data.
 
 //  Toast System 
-function showToast(message, type = 'info') {
+function showToast(message, type = 'info', duration = 3000) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
@@ -19,7 +19,7 @@ function showToast(message, type = 'info') {
 	setTimeout(() => {
 		toast.classList.add('out');
 		setTimeout(() => toast.remove(), 300);
-	}, 3000);
+	}, duration);
 }
 
 //  Confirmation dialog 
@@ -99,6 +99,7 @@ function showView(name) {
   // Leaving the player tears the stream down so it stops downloading data.
   if (prevName === 'player' && name !== 'player') stopPlayback();
   if (name === 'history') loadHistory();
+  if (name === 'downloads') renderDownloads();
   if (name === 'home') loadHome();
   if (name === 'search') {
     renderRecentSearches();
@@ -129,7 +130,7 @@ function popView() {
 
 //  API helpers 
 // Android uses the native scraper/database bridge. The browser path remains
-// available so this same UI can still be run by app.py during development.
+// available so this same UI can still be run during development.
 let androidRequestId = 0;
 const androidRequests = new Map();
 window.__androidResponse = (id, payload) => {
@@ -152,22 +153,23 @@ const api = {
 };
 
 // MPV: native AndroidApi call on device (stream fetch + launch in one go);
-// dev-mode browsers fall back to app.py's /api/stream + /api/mpv endpoints.
+// dev-mode browsers fall back to /api/stream + /api/mpv endpoints.
 // Resolves to { ok, url, raw, type } or { error, url?, raw?, type? } so the
 // caller can still fall back to the web player when only MPV fails.
-// The stream CDN expects a real browser UA + the embed page as referrer — the
-// WebView's own UA string ("Elsnime Android") and the app origin get mpv's
-// request blocked, so both are overridden here (the scraper stamps the embed
+// The stream CDN expects a real browser UA + the embed page as referrer. MPV
+// is a separate process that inherits neither the WebView's UA nor any
+// referer, so both are passed explicitly here (the scraper stamps the embed
 // referrer onto the stream result; see AniDbScraper.stream()).
 // Same UA the scraper uses, so the CDN sees an identical fingerprint.
 const MPV_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36';
 function playInMpvNative(animeId, episode, type) {
   const referer = 'https://anidb.app';
+  const title = (S.anime?.anilist?.title?.english || S.anime?.title || 'Anime') + ' - Episode ' + episode;
   if (window.AndroidApi) {
     return new Promise(resolve => {
       const id = String(++androidRequestId);
       androidRequests.set(id, resolve);
-      window.AndroidApi.playInMpv(id, String(animeId), String(episode), type, referer, MPV_UA);
+      window.AndroidApi.playInMpv(id, String(animeId), title, String(episode), type, referer, MPV_UA);
     });
   }
   return api.get(`/api/stream?id=${encodeURIComponent(animeId)}&episode=${encodeURIComponent(episode)}&type=${type}`)
@@ -188,7 +190,7 @@ function getMpvStatus() {
       window.AndroidApi.mpvStatus(id);
     });
   }
-  // Dev mode: app.py shells out to mpv, so treat it as available
+  // Dev mode: treat mpv as available
   return Promise.resolve({ available: true, cli: true, app: false });
 }
 
@@ -248,6 +250,7 @@ const DEFAULT_SETTINGS = {
   aniskip: 'on',
   performance_mode: 'auto',
   hw_accel: false,
+  quality: '720', // Default playback quality ('auto' lets hls.js pick by bandwidth)
 };
 
 async function loadSettings() {
@@ -263,6 +266,7 @@ async function loadSettings() {
   setPillValue('pill-player', S.settings.player   || DEFAULT_SETTINGS.player);
   setPillValue('pill-lang',   S.settings.sub_lang || DEFAULT_SETTINGS.sub_lang);
   setPillValue('pill-aniskip', S.settings.aniskip || DEFAULT_SETTINGS.aniskip);
+  setPillValue('pill-quality', S.settings.quality || DEFAULT_SETTINGS.quality);
 
   applyTheme(S.settings.theme || DEFAULT_SETTINGS.theme);
   initPillSliders();
@@ -383,6 +387,7 @@ async function resetSettings() {
   setPillValue('pill-player', DEFAULT_SETTINGS.player);
   setPillValue('pill-lang',   DEFAULT_SETTINGS.sub_lang);
   setPillValue('pill-aniskip', DEFAULT_SETTINGS.aniskip);
+  setPillValue('pill-quality', DEFAULT_SETTINGS.quality);
   applyTheme(DEFAULT_SETTINGS.theme);
   refreshPillSliders();
   showToast('Settings reset', 'success');

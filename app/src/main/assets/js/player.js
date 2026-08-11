@@ -38,6 +38,106 @@ function formatTime(sec) {
   return m + ':' + String(s).padStart(2, '0');
 }
 
+// The Plyr quality picker is rebuilt from the actual renditions in the m3u8
+// (hls.js levels) instead of a fixed ladder, and starts on the Default Quality
+// from Settings — snapping to the closest available rendition when the exact
+// height isn't in the manifest. 'auto' lets hls.js pick by bandwidth.
+
+function nearestHeight(heights, target) {
+  return heights.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+}
+
+// Apply a requested height to hls.js (nearest match when missing) and reflect
+// it in the quality menu.
+function applyHlsQuality(target) {
+  if (!hlsPlayer || !hlsPlayer.levels || !hlsPlayer.levels.length) return;
+  const heights = hlsPlayer.levels.map(l => l.height).filter(h => h > 0);
+  if (!heights.length) return;
+  const h = nearestHeight(heights, target);
+  const idx = hlsPlayer.levels.findIndex(l => l.height === h);
+  if (idx >= 0) hlsPlayer.currentLevel = idx;
+  setQualityMenuState(String(h), h + 'p');
+}
+
+// Mark the active entry in the Quality submenu and the settings entry label.
+function setQualityMenuState(value, label) {
+  if (!player || !player.elements || !player.elements.settings) return;
+  const panel = player.elements.settings.panels.quality;
+  if (panel) {
+    panel.querySelectorAll('[role="menuitemradio"]').forEach(btn => {
+      btn.setAttribute('aria-checked', btn.value === String(value) ? 'true' : 'false');
+    });
+  }
+  const valueEl = player.elements.settings.buttons.quality &&
+    player.elements.settings.buttons.quality.querySelector('.plyr__menu__value');
+  if (valueEl) valueEl.textContent = label;
+}
+
+// After a menu pick, step back to the settings home panel like Plyr's own menu
+// items do (its createMenuItem handlers navigate back on selection).
+function showSettingsHomePanel() {
+  if (!player || !player.elements || !player.elements.settings) return;
+  const { panels } = player.elements.settings;
+  if (!panels || !panels.quality || !panels.home) return;
+  panels.quality.hidden = true;
+  panels.home.hidden = false;
+}
+
+// Rebuild Plyr's Quality submenu from the manifest's renditions (plus Auto),
+// then start on the saved Default Quality.
+function buildQualityMenu() {
+  if (!player || !player.elements || !player.elements.settings) return;
+  const panel = player.elements.settings.panels.quality;
+  const list = panel && panel.querySelector('[role="menu"]');
+  if (!list || !hlsPlayer || !hlsPlayer.levels) return;
+  const heights = [...new Set(hlsPlayer.levels.map(l => l.height).filter(h => h > 0))]
+    .sort((a, b) => b - a);
+  if (!heights.length) {
+    // No video renditions (audio-only or unparsed) — drop the Quality entry
+    // rather than leaving dead options in the menu.
+    if (player.elements.settings.buttons.quality) {
+      player.elements.settings.buttons.quality.hidden = true;
+    }
+    return;
+  }
+
+  list.innerHTML = '';
+  const addItem = (value, label) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.role = 'menuitemradio';
+    btn.className = 'plyr__control';
+    btn.value = value;
+    btn.dataset.plyr = 'quality';
+    btn.setAttribute('aria-checked', 'false');
+    const span = document.createElement('span');
+    span.textContent = label;
+    btn.appendChild(span);
+    btn.addEventListener('click', () => {
+      if (value === 'auto') {
+        if (hlsPlayer) hlsPlayer.currentLevel = -1;
+        setQualityMenuState('auto', 'Auto');
+      } else {
+        applyHlsQuality(parseInt(value, 10));
+      }
+      showSettingsHomePanel();
+    });
+    list.appendChild(btn);
+  };
+
+  addItem('auto', 'Auto');
+  heights.forEach(h => addItem(String(h), h + 'p'));
+
+  // Start on the saved Default Quality (closest rendition if unavailable).
+  const setting = String(S.settings.quality || '720');
+  if (setting === 'auto') {
+    if (hlsPlayer) hlsPlayer.currentLevel = -1;
+    setQualityMenuState('auto', 'Auto');
+  } else {
+    applyHlsQuality(parseInt(setting, 10) || 720);
+  }
+}
+
 async function playEpisode(ep, index) {
   S.currentEp = { ep, index };
   const al = S.anime?.anilist || {};
@@ -62,6 +162,7 @@ async function playEpisode(ep, index) {
 
   pushView('player');
   renderUpNext();
+  refreshPlayerDownloadButton();
 
   // MPV default: one native call fetches the stream and launches mpv in Java.
   // If only MPV failed, Java still returns the stream so we can fall back.
@@ -161,27 +262,14 @@ function loadStream(url, type, master, referer, resumeAt) {
         'mute', 'settings', 'fullscreen',
       ],
       settings: ['quality', 'speed'],
-      // forced + onChange is Plyr 3.8's documented hook for streaming sources:
-      // it routes menu picks to hls.js's level switching below.
+      // The Quality menu is rebuilt from the real hls.js renditions once the
+      // manifest parses (buildQualityMenu below); this static ladder only
+      // scaffolds the settings entry so the menu exists from the start.
       quality: {
         default: 720,
         options: [1080, 720, 480, 360],
         forced: true,
-        onChange: quality => {
-          if (!hlsPlayer || !hlsPlayer.levels.length) return;
-          let idx = hlsPlayer.levels.findIndex(l => l.height === quality);
-          // Level not in this stream's ladder: snap to the nearest rendition
-          // instead of falling back to auto (which may pick a lower one).
-          if (idx < 0) {
-            let best = -1, bestDiff = Infinity;
-            hlsPlayer.levels.forEach((l, i) => {
-              const d = Math.abs((l.height || 0) - quality);
-              if (d < bestDiff) { bestDiff = d; best = i; }
-            });
-            idx = best;
-          }
-          hlsPlayer.currentLevel = idx;
-        },
+        onChange: quality => applyHlsQuality(quality),
       },
       speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] },
       poster,
@@ -211,6 +299,11 @@ function loadStream(url, type, master, referer, resumeAt) {
     // playlist lets hls.js pick the best level automatically; the settings >
     // quality menu is driven by quality.onChange below.
     const isHls = type === 'hls' || /\.m3u8/i.test(url);
+    // Non-HLS streams have no renditions to pick from — drop the Quality entry
+    // so the menu can't offer options that do nothing.
+    if (!isHls && player.elements.settings && player.elements.settings.buttons.quality) {
+      player.elements.settings.buttons.quality.hidden = true;
+    }
     if (isHls && window.Hls && Hls.isSupported()) {
       // enableWorker:false keeps hls.js deterministic inside the WebView
       // (workers from a file:// page are flaky on some devices); segment
@@ -225,10 +318,22 @@ function loadStream(url, type, master, referer, resumeAt) {
       });
       hlsPlayer.loadSource(master || url);
       hlsPlayer.attachMedia(v);
-      // Surface fatal load failures (Plyr's own 'error' event won't fire for
-      // hls.js network errors — hls.js swallows them during retries).
+      // Once the manifest is parsed the renditions are known: rebuild the
+      // Quality menu from them and start on the saved Default Quality.
+      hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => buildQualityMenu());
+      // Keep the checked entry honest while Auto/ABR picks levels.
+      hlsPlayer.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+        if (hlsPlayer && hlsPlayer.levels && hlsPlayer.levels[data.level]) {
+          const h = hlsPlayer.levels[data.level].height;
+          if (h > 0) setQualityMenuState(String(h), h + 'p');
+        }
+      });
+      // Surface fatal load failures with a message that explains what happened
+      // (Plyr's own 'error' event won't fire for hls.js network errors — hls.js
+      // swallows them during retries). CDN blocks are almost always referer/UA
+      // gating, so those get an explicit "try MPV" hint.
       hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
-        if (data && data.fatal) showPlayerError('Stream error. Try opening in MPV.');
+        if (data && data.fatal) showPlayerError(hlsFatalMessage(data));
       });
     } else if (isHls) {
       // No hls.js (native HLS browsers like Safari): let the browser play it.
@@ -305,6 +410,31 @@ function showPlayerError(msg) {
   showToast(msg, 'error');
 }
 
+//  Map an hls.js fatal error to a user-facing message. hls.js retries
+//  recoverable errors internally, so everything reaching here is fatal.
+//  A 401/403 from the CDN means the referer/UA the WebView sent was rejected
+//  (or the stream expired) — MPV is the reliable fallback for those.
+function hlsFatalMessage(data) {
+  const code = data && data.response ? data.response.code : 0;
+  if (data && data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR) {
+    return 'The stream playlist is invalid — try again or open in MPV.';
+  }
+  if (data && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+    if (code === 403 || code === 401) {
+      return 'The CDN blocked this stream (HTTP ' + code + ') — try opening in MPV.';
+    }
+    if (code === 404) {
+      return 'Stream not found (HTTP 404) — it may have expired. Try again or open in MPV.';
+    }
+    if (code >= 400) return 'Stream request failed (HTTP ' + code + ') — try opening in MPV.';
+    return 'Network error while loading the stream — check your connection or try MPV.';
+  }
+  if (data && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+    return 'Could not decode this video — try opening in MPV.';
+  }
+  return 'Stream error. Try opening in MPV.';
+}
+
 function playAdjacentEp(dir) {
   const next = S.currentEp.index + dir;
   if (next < 0 || next >= S.episodes.length) return;
@@ -312,15 +442,21 @@ function playAdjacentEp(dir) {
 }
 
 async function markWatched() {
-  if (!S.anime || !S.currentEp) return;
-  const video = document.getElementById('video');
-  const duration = video.duration || 1;
-  await saveProgress(S.currentEp.ep, duration, duration, true);
-  showToast('Marked as watched', 'success');
+  if (!S.anime || !S.currentEp || !S.episodes.length) return;
+  const al = S.anime.anilist || {};
+  // Set a watched-through boundary: every episode up to (and including) the
+  // current one becomes watched, and episodes past it that were previously
+  // marked revert to unwatched (one native call, one transaction).
+  await api.post('/api/watched', {
+    anime_id:    S.anime.id,
+    anime_title: al.title?.english || S.anime.title,
+    thumbnail:   al.coverImage?.large || S.anime.thumbnail || '',
+    episodes:    S.episodes,
+    upto_index:  S.currentEp.index,
+  }).catch(() => {});
+  showToast('Marked through Ep ' + S.currentEp.ep + ' as watched', 'success');
   // Refresh progress dots in the detail grid and the Up next sidebar
-  if (document.getElementById('view-detail').classList.contains('active')) {
-    await renderEpisodes();
-  }
+  await renderEpisodes();
   renderUpNext();
 }
 
@@ -336,6 +472,26 @@ async function playInMpv() {
   } else {
     showToast('Launched in MPV', 'success');
   }
+}
+
+//  Download the current episode (button next to Mark Watched / Open in MPV).
+//  Toggles with state: start when idle, cancel while active, informational
+//  toast when already on disk (deleting happens in the Downloads tab or the
+//  episode rows).
+async function downloadCurrentEpisode() {
+  if (!S.anime || !S.currentEp) return;
+  const title = animeDisplayTitle();
+  const state = episodeDownloadState(S.anime.id, title, S.currentEp.ep);
+  const dl = findDownload(S.anime.id, S.currentEp.ep);
+  if (state === 'done' || (dl && (dl.state === 'done' || dl.state === 'exists'))) {
+    showToast('Already downloaded — manage it in the Downloads tab', 'info');
+    return;
+  }
+  if (dl && DOWNLOAD_ACTIVE.includes(dl.state)) {
+    cancelDownloadByKey(S.anime.id, S.currentEp.ep);
+    return;
+  }
+  await requestDownload(S.anime.id, title, S.currentEp.ep, S.translation);
 }
 
 //  AniSkip: Crunchyroll-style skip button (intro/recap/credits) via the public

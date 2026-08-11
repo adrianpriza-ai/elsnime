@@ -13,7 +13,9 @@ public final class AniDbScraper {
     private static final String ANIDB = "https://anidb.app";
     private static final String JIKAN = "https://api.jikan.moe/v4";
     private static final String ANILIST = "https://graphql.anilist.co";
-    private static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36";
+    // Package-visible so the WebView can present the same browser fingerprint
+    // the scraper uses (CDN media requests are gated on it).
+    static final String UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36";
     private static final long TTL_DAY = 86400L, TTL_HOUR = 3600L;
 
     public interface CacheStore { String get(String key); void put(String key,String value,long ttlSeconds); void clear(); void clearPrefix(String prefix); }
@@ -167,7 +169,33 @@ public final class AniDbScraper {
     private String findEpisodeId(Object value,String wanted){if(value instanceof JSONObject){JSONObject o=(JSONObject)value;if(o.has("id")&&wanted.equals(o.optString("number")))return o.optString("id");for(Iterator<String> it=o.keys();it.hasNext();){String found=findEpisodeId(o.opt(it.next()),wanted);if(!found.isEmpty())return found;}}else if(value instanceof JSONArray){JSONArray a=(JSONArray)value;for(int i=0;i<a.length();i++){String found=findEpisodeId(a.opt(i),wanted);if(!found.isEmpty())return found;}}return "";}
     private void collectEpisodeNumbers(Object value,List<String> out){if(value instanceof JSONObject){JSONObject o=(JSONObject)value;if(o.has("id")&&o.has("number")){String n=o.optString("number");if(!n.isEmpty())out.add(n);}for(Iterator<String> it=o.keys();it.hasNext();)collectEpisodeNumbers(o.opt(it.next()),out);}else if(value instanceof JSONArray){JSONArray a=(JSONArray)value;for(int i=0;i<a.length();i++)collectEpisodeNumbers(a.opt(i),out);}}
     private String findEmbed(Object value,String language,boolean inherited){if(value instanceof JSONObject){JSONObject o=(JSONObject)value;boolean matched=inherited||language.equalsIgnoreCase(o.optString("code"))||language.equalsIgnoreCase(o.optString("language"));String embed=o.optString("embed_url");if(matched&&!embed.isEmpty())return unescapeUrl(embed);for(Iterator<String> it=o.keys();it.hasNext();){String key=it.next();String found=findEmbed(o.opt(key),language,matched||language.equalsIgnoreCase(key));if(!found.isEmpty())return found;}}else if(value instanceof JSONArray){JSONArray a=(JSONArray)value;for(int i=0;i<a.length();i++){String found=findEmbed(a.opt(i),language,inherited);if(!found.isEmpty())return found;}}return "";}
-    private String bestVariant(String master,String manifest){List<String> links=new ArrayList<>();for(String part:manifest.split("#EXT-X-STREAM-INF")){part=part.split("#EXT-X-I-FRAME")[0];Matcher rm=Pattern.compile("RESOLUTION=\\d+x(\\d+)").matcher(part);if(!rm.find())continue;Matcher um=Pattern.compile("https?://[^\\s#\\\"]+").matcher(part);String uri=um.find()?um.group():null;if(uri==null){String[] toks=part.trim().split("\\s+");if(toks.length>0)uri=toks[toks.length-1];}if(uri==null||uri.isEmpty())continue;links.add(rm.group(1)+" >"+absoluteUrl(master,uri));}links.sort((a,b)->Integer.compare(quality(b),quality(a)));return links.isEmpty()?"":links.get(0).replaceFirst("^\\d+\\s*>\\s*","");}
+    private String bestVariant(String master,String manifest){return pickVariant(master,manifest,0);}
+    /** Pick a variant playlist from a master manifest: the highest rendition when
+     *  targetHeight<=0, otherwise the closest at-or-below the requested height
+     *  (falling back to the smallest above it). Shared by the web player (best
+     *  quality) and the native downloader (user-chosen Default Quality). */
+    static String pickVariant(String master,String manifest,int targetHeight){
+        List<String[]> links=new ArrayList<>();
+        for(String part:manifest.split("#EXT-X-STREAM-INF")){
+            part=part.split("#EXT-X-I-FRAME")[0];
+            Matcher rm=Pattern.compile("RESOLUTION=\\d+x(\\d+)").matcher(part);
+            if(!rm.find())continue;
+            Matcher um=Pattern.compile("https?://[^\\s#\\\"]+").matcher(part);
+            String uri=um.find()?um.group():null;
+            if(uri==null){String[] toks=part.trim().split("\\s+");if(toks.length>0)uri=toks[toks.length-1];}
+            if(uri==null||uri.isEmpty())continue;
+            links.add(new String[]{rm.group(1),absoluteUrl(master,uri)});
+        }
+        if(links.isEmpty())return "";
+        int target=targetHeight>0?targetHeight:Integer.MAX_VALUE;
+        String best=null,above=null;int bestH=-1,aboveH=Integer.MAX_VALUE;
+        for(String[] l:links){
+            int h=quality(l[0]);
+            if(h<=target&&h>bestH){bestH=h;best=l[1];}
+            else if(h>target&&h<aboveH){aboveH=h;above=l[1];}
+        }
+        return best!=null?best:(above!=null?above:links.get(0)[1]);
+    }
     private static int scoreName(String title,String wanted){String n=normalize(title);if(n.equals(wanted))return 1000;if(n.startsWith(wanted))return 700;if(n.contains(wanted))return 500;return 0;}
     private static String normalize(String s){return java.text.Normalizer.normalize(s==null?"":s.toLowerCase(Locale.US),java.text.Normalizer.Form.NFD).replaceAll("\\p{M}+","").replaceAll("[^\\p{L}\\p{N}]+"," ").trim();}
     private static String numericId(String slug){int p=slug.lastIndexOf('-');return p<0?slug:slug.substring(p+1);}

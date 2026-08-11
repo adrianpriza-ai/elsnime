@@ -16,7 +16,7 @@
 	border-radius: 999px;
 	color: var(--text-primary);
 	font-size: 16px;
-	font-family: "Inter", sans-serif;
+	font-family: sans-serif;
 	outline: 0;
 	transition:
 		border-color var(--transition-fast),
@@ -143,7 +143,7 @@
 	font-size: 13px;
 	font-weight: 500;
 	cursor: pointer;
-	font-family: "Inter", sans-serif;
+	font-family: sans-serif;
 	border: 0;
 	transition:
 		background var(--transition-fast),
@@ -200,7 +200,7 @@
 	color: var(--text-secondary);
 	font-size: 12px;
 	font-weight: 500;
-	font-family: "Inter", sans-serif;
+	font-family: sans-serif;
 	cursor: pointer;
 	transition:
 		background var(--transition-fast),
@@ -281,7 +281,7 @@
 	color: var(--text-primary);
 	font-size: 13px;
 	font-weight: 600;
-	font-family: "Inter", sans-serif;
+	font-family: sans-serif;
 	cursor: pointer;
 	transition: background var(--transition-fast);
 }

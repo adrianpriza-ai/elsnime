@@ -34,6 +34,10 @@ document.addEventListener('keydown', e => {
       e.preventDefault();
       navigate('settings');
       break;
+    case 'd':
+      e.preventDefault();
+      navigate('downloads');
+      break;
     case 'r':
       e.preventDefault();
       refreshCurrentView();
