@@ -1,8 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: Contributing Guidelines
-    url: https://github.com/adrianpriza-ai/elsnime/blob/main/CONTRIBUTING.md
-    about: Please read our contributing guide before submitting a pull request.
-  - name: Developer Documentation
-    url: https://github.com/adrianpriza-ai/elsnime/blob/main/HACKING.md
-    about: Technical documentation on the hybrid WebView architecture and backend internals.
