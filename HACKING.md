@@ -24,8 +24,8 @@ A vanilla JS frontend inside an Android WebView, backed by native Java classes.
 |                      NATIVE JAVA BACKEND                     |
 | - MainActivity (Host, AndroidApi bridge, Backend, HistoryDb) |
 | - AniDbScraper (Parsing, Metadata enrichment, API calls)     |
-| - Downloader (HLS → MP4 download engine, resume)          |
-| - DownloadService (foreground service + progress notif.) |
+| - Downloader (HLS → MP4 download engine, resume)             |
+| - DownloadService (foreground service + progress notif.)     |
 | - CronetTransport (HTTP networking)                          |
 +--------------------------------------------------------------+
 ```
