@@ -97,7 +97,6 @@
 .dl-state.state-queued,
 .dl-state.state-resolving,
 .dl-state.state-downloading,
-.dl-state.state-remuxing,
 .dl-state.state-cancelling,
 .dl-state.state-deleting {
 	color: var(--accent-primary);

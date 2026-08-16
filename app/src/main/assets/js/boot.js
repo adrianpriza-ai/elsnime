@@ -26,17 +26,21 @@ document.addEventListener('keydown', e => {
       navigate('search');
       setTimeout(() => searchInput.focus(), 100);
       break;
+    case 'y':
+      e.preventDefault();
+      openLibrarySection('hub');
+      break;
     case 'h':
       e.preventDefault();
-      pushView('history');
+      openLibrarySection('history');
       break;
     case 's':
       e.preventDefault();
-      navigate('settings');
+      openLibrarySection('settings');
       break;
     case 'd':
       e.preventDefault();
-      navigate('downloads');
+      openLibrarySection('downloads');
       break;
     case 'r':
       e.preventDefault();
@@ -85,9 +89,19 @@ window.handleAppBack = function() {
     popView();
     return true;
   }
-  if (activeId === 'detail' || activeId === 'history') {
+  if (activeId === 'detail') {
     popView();
     return true;
+  }
+  if (activeId === 'library') {
+    // You sub-pages (Downloads / Saved for later / History / Settings) pop
+    // back to the hub first; the system back button only exits the app from
+    // the hub (a root tab), like YouTube's You tab.
+    if (librarySection !== 'hub') {
+      youBack();
+      return true;
+    }
+    return false;
   }
   if (activeId === 'search' && (searchInput.value.trim() || activeGenreChip())) {
     searchInput.value = '';
@@ -109,15 +123,18 @@ let pullStartY = 0;
 let pulling = false;
 let pullDistance = 0;
 let refreshing = false;
-
-const mainScroll = document.getElementById('main');
-const refreshIndicator = document.getElementById('refresh-indicator');
-const refreshLabel = document.getElementById('refresh-label');
+// Bound in boot() once the views/*.html partials are injected.
+let mainScroll = null;
+let refreshIndicator = null;
+let refreshLabel = null;
 
 function refreshableView() {
   const active = document.querySelector('.view.active');
   const id = active ? active.id.replace('view-', '') : '';
-  return id === 'home' || id === 'search' || id === 'history';
+  // History lives inside the You page now; the hub shows it inline and the
+  // History sub-page shows the full list — both are refreshable.
+  if (id === 'library') return librarySection === 'hub' || librarySection === 'history';
+  return id === 'home' || id === 'search';
 }
 
 function setPullIndicator(distance) {
@@ -133,36 +150,6 @@ function resetPullIndicator() {
   refreshLabel.textContent = 'Pull to refresh';
   refreshIndicator.classList.remove('loading');
 }
-
-mainScroll.addEventListener('touchstart', e => {
-  if (refreshing || !refreshableView() || mainScroll.scrollTop > 0) return;
-  pulling = true;
-  pullDistance = 0;
-  pullStartY = e.touches[0].clientY;
-}, { passive: true });
-
-mainScroll.addEventListener('touchmove', e => {
-  if (!pulling) return;
-  const delta = e.touches[0].clientY - pullStartY;
-  if (delta <= 0) { pulling = false; resetPullIndicator(); return; }
-  pullDistance = Math.min(delta * 0.55, 120);
-  setPullIndicator(pullDistance);
-  e.preventDefault();
-}, { passive: false });
-
-mainScroll.addEventListener('touchend', () => {
-  if (!pulling) return;
-  const shouldRefresh = pullDistance >= PULL_THRESHOLD;
-  pulling = false;
-  resetPullIndicator();
-  if (shouldRefresh) refreshCurrentView();
-});
-
-mainScroll.addEventListener('touchcancel', () => {
-  if (!pulling) return;
-  pulling = false;
-  resetPullIndicator();
-});
 
 async function refreshCurrentView() {
   if (refreshing) return;
@@ -180,6 +167,9 @@ async function refreshCurrentView() {
   else if (id === 'search') {
     cachePrefixes = searchInput.value.trim() ? 'anidb-search|,anidb-resolve|' : 'trending,tags,tag|';
   }
+  else if (id === 'library') {
+    cachePrefixes = '';
+  }
   try { if (window.AndroidApi && window.AndroidApi.refreshCache) window.AndroidApi.refreshCache(cachePrefixes); } catch (_) {}
   try {
     if (id === 'home') await loadHome();
@@ -189,7 +179,10 @@ async function refreshCurrentView() {
       else if (chip) await doSearch('', chip.dataset.genre);
       else { await loadTrending(); loadTags(true); }
     }
-    else if (id === 'history') loadHistory();
+    else if (id === 'library') {
+      if (librarySection === 'hub') loadContinueWatching(document.getElementById('you-history-section'));
+      else if (librarySection === 'history') loadHistory();
+    }
   } catch (_) {}
   resetPullIndicator();
   refreshing = false;
@@ -212,26 +205,74 @@ document.addEventListener('visibilitychange', () => {
 });
 
 //  Boot 
-// One-time cleanup of the legacy accent_h key from pre-refactor versions
-if (window.localStorage) { try { localStorage.removeItem('accent_h'); } catch (_) {} }
+// Runs after js/ui-loader.js has injected the views/*.html partials (the DOM
+// elements this wires up don't exist before that), so every script above can
+// define functions without touching the DOM at parse time.
+async function boot() {
+  mainScroll = document.getElementById('main');
+  refreshIndicator = document.getElementById('refresh-indicator');
+  refreshLabel = document.getElementById('refresh-label');
 
-// MPV availability: hide the Open-in-MPV button and the MPV player option when
-// nothing is installed (no CLI mpv binary, no mpv-android app).
-const mpvReady = getMpvStatus().then(status => {
-  if (status) S.mpv = { available: !!status.available, cli: !!status.cli, app: !!status.app };
-  const btn = document.getElementById('btn-mpv');
-  if (btn) btn.style.display = S.mpv.available ? '' : 'none';
-  const mpvOpt = document.querySelector('#pill-player .pill-option[data-value="mpv"]');
-  if (mpvOpt) mpvOpt.style.display = S.mpv.available ? '' : 'none';
-});
+  mainScroll.addEventListener('touchstart', e => {
+    if (refreshing || !refreshableView() || mainScroll.scrollTop > 0) return;
+    pulling = true;
+    pullDistance = 0;
+    pullStartY = e.touches[0].clientY;
+  }, { passive: true });
 
-// Wait for both status and settings so a stale 'mpv' default falls back to web
-Promise.all([mpvReady, loadSettings()]).then(() => {
-  if (!S.mpv.available && S.settings.player === 'mpv') {
-    S.settings.player = 'web';
-    setPillValue('pill-player', 'web');
-    api.post('/api/settings', { player: 'web' }).catch(() => {});
-  }
+  mainScroll.addEventListener('touchmove', e => {
+    if (!pulling) return;
+    const delta = e.touches[0].clientY - pullStartY;
+    if (delta <= 0) { pulling = false; resetPullIndicator(); return; }
+    pullDistance = Math.min(delta * 0.55, 120);
+    setPullIndicator(pullDistance);
+    e.preventDefault();
+  }, { passive: false });
+
+  mainScroll.addEventListener('touchend', () => {
+    if (!pulling) return;
+    const shouldRefresh = pullDistance >= PULL_THRESHOLD;
+    pulling = false;
+    resetPullIndicator();
+    if (shouldRefresh) refreshCurrentView();
+  });
+
+  mainScroll.addEventListener('touchcancel', () => {
+    if (!pulling) return;
+    pulling = false;
+    resetPullIndicator();
+  });
+
+  // Search wires its input/chips once the partials are in place.
+  if (window.__initSearch) window.__initSearch();
+
+  // One-time cleanup of the legacy accent_h key from pre-refactor versions
+  if (window.localStorage) { try { localStorage.removeItem('accent_h'); } catch (_) {} }
+
+  // MPV availability: hide the Open-in-MPV button and the MPV player option
+  // when nothing is installed (no CLI mpv binary, no mpv-android app).
+  const mpvReady = getMpvStatus().then(status => {
+    if (status) S.mpv = { available: !!status.available, cli: !!status.cli, app: !!status.app };
+    const btn = document.getElementById('btn-mpv');
+    if (btn) btn.style.display = S.mpv.available ? '' : 'none';
+    const mpvOpt = document.querySelector('#pill-player .pill-option[data-value="mpv"]');
+    if (mpvOpt) mpvOpt.style.display = S.mpv.available ? '' : 'none';
+  });
+
+  // Wait for both status and settings so a stale 'mpv' default falls back to web
+  Promise.all([mpvReady, loadSettings()]).then(() => {
+    if (!S.mpv.available && S.settings.player === 'mpv') {
+      S.settings.player = 'web';
+      setPillValue('pill-player', 'web');
+      api.post('/api/settings', { player: 'web' }).catch(() => {});
+    }
+  });
+  showView('home');
+  loadTags();
+}
+
+window.__UI_READY.then(boot).catch(err => {
+  // If the UI partials failed to load, boot never runs — surface it.
+  console.error('[boot]', err);
+  if (window.showToast) showToast('UI failed to load', 'error');
 });
-showView('home');
-loadTags();

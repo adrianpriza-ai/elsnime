@@ -35,6 +35,7 @@ async function openAnime(anime) {
 
   // Update seg buttons
   updateSegPills(S.translation);
+  updateSaveLaterButton();
 
   pushView('detail');
   updateDescToggle();

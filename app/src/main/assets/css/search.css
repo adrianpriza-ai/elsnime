@@ -1,8 +1,10 @@
-/* search.css — Search bar, section titles, genre chips */
+/* search.css — Search bar, section titles, genre chips
+   Play Store-style: a prominent rounded search field on top, a horizontally
+   scrolling row of category chips beneath it, and content sections below. */
 
 #search-bar-wrap {
 	max-width: 640px;
-	margin: 8px auto 20px;
+	margin: 8px auto 14px;
 	position: relative;
 }
 
@@ -125,29 +127,80 @@
 	cursor: pointer;
 }
 
-.genre-chips {
-	display: flex;
-	gap: 8px;
-	flex-wrap: wrap;
-	justify-content: center;
-	align-items: center;
-	margin: 0 auto 22px;
+/* Browse by genre: a 2-column grid of genre cards (name + anime count) that
+   replaces the old sideways chip rail — bigger tap targets, easy to scan. */
+.browse-section {
 	max-width: 720px;
+	margin: 0 auto 20px;
+}
+
+.genre-grid {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 10px;
+}
+
+.genre-card {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	width: 100%;
+	flex-shrink: 1;
+	padding: 12px 14px;
+	border-radius: 14px;
+	text-align: left;
+}
+
+.genre-card .genre-name {
+	font-size: 14px;
+	font-weight: 600;
+	color: inherit;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.genre-count {
+	flex-shrink: 0;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--text-muted);
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: var(--surface-2);
+}
+
+.genre-card.active .genre-count {
+	background: rgba(255, 255, 255, 0.18);
+	color: var(--on-accent);
+}
+
+.genre-group-label {
+	font-size: 12px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.8px;
+	color: var(--text-muted);
+	margin: 4px 0 8px;
+	grid-column: 1 / -1;
 }
 
 .chip {
+	flex-shrink: 0;
 	padding: 8px 14px;
-	border-radius: var(--radius-md);
+	border-radius: 999px;
 	background: var(--surface);
 	color: var(--text-secondary);
 	font-size: 13px;
 	font-weight: 500;
 	cursor: pointer;
 	font-family: sans-serif;
-	border: 0;
+	border: 1px solid var(--border);
 	transition:
 		background var(--transition-fast),
-		color var(--transition-fast);
+		color var(--transition-fast),
+		border-color var(--transition-fast);
 }
 
 .chip:hover {
@@ -157,6 +210,7 @@
 
 .chip.active {
 	background: var(--accent-primary);
+	border-color: var(--accent-primary);
 	color: var(--on-accent);
 }
 

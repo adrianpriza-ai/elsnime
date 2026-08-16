@@ -18,6 +18,7 @@ public final class MainActivity extends Activity {
     private static volatile java.util.concurrent.CompletableFuture<Boolean> storagePermissionFuture;
     private static final Object storagePermissionLock = new Object();
     private static final int STORAGE_PERMISSION_REQUEST = 7001;
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 7002;
 
     // Ensure WRITE_EXTERNAL_STORAGE before the first download on legacy Android.
     // Blocks up to 30s waiting for the user's answer; returns true on API 29+
@@ -67,7 +68,14 @@ public final class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onJsConfirm(WebView v, String url, String message, JsResult result) { result.cancel(); return true; }
         });
-        web.addJavascriptInterface(new AndroidApi(web,backend),"AndroidApi"); setContentView(web); web.loadUrl("file:///android_asset/ui.html"); }
+        web.addJavascriptInterface(new AndroidApi(web,backend),"AndroidApi"); setContentView(web); web.loadUrl("file:///android_asset/ui.html");
+        // Download notifications need POST_NOTIFICATIONS on Android 13+. Ask at
+        // launch (a no-op below 33); denying only hides the notification — the
+        // download itself still works.
+        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},NOTIFICATION_PERMISSION_REQUEST);
+        }
+    }
     @Override public void onRequestPermissionsResult(int code,String[] perms,int[] grants){
         super.onRequestPermissionsResult(code,perms,grants);
         if(code==STORAGE_PERMISSION_REQUEST&&storagePermissionFuture!=null){
@@ -150,8 +158,29 @@ public final class MainActivity extends Activity {
             int mode = view.getContext().getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
             return mode == android.content.res.Configuration.UI_MODE_NIGHT_YES ? "dark" : "light";
         }
+        // ui-loader.js: the UI is split into views/*.html partials, and fetch()
+        // to file:// URLs is unreliable in WebView (CORS on file origins), so
+        // the page reads each partial through the bridge instead. Runs on the
+        // JS bridge thread (a background thread), so the blocking asset read is
+        // fine. Returns null when the file is missing (e.g. stale APK).
+        @JavascriptInterface public String readAsset(final String path){
+            try{
+                java.io.InputStream in = view.getContext().getAssets().open(path);
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while((n=in.read(buf))!=-1)out.write(buf,0,n);
+                in.close();
+                return out.toString("UTF-8");
+            }catch(Exception e){return null;}
+        }
         @JavascriptInterface public void request(final String id,final String method,final String path,final String body){backend.executor.execute(()->{String result=backend.handle(method,path,body); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
         @JavascriptInterface public void playInMpv(final String id,final String animeId,final String animeTitle,final String episode,final String type,final String referer,final String userAgent){backend.executor.execute(()->{String result=backend.playInMpv(animeId,animeTitle,episode,type,referer,userAgent); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
+        // MPV for a downloaded file (playing from Library > Downloads): the file
+        // is already served by the loopback LocalFileServer, so mpv just opens
+        // that URL — no stream scraping. mime is the container type mpv-android
+        // needs to accept the extension-less loopback URL.
+        @JavascriptInterface public void playInMpvUrl(final String id,final String url,final String title,final String mime){backend.executor.execute(()->{String result=backend.playInMpvUrl(url,title,mime); view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
         // Plyr fallback fullscreen state (called from player.js on
         // enterfullscreen/exitfullscreen): hide the system bars + rotate to
         // landscape for the duration, restore on exit. The last requested
@@ -191,6 +220,14 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void cancelDownload(final String id,final String animeId,final String episode){backend.executor.execute(()->{backend.cancelDownload(animeId,episode);view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote("{\"ok\":true}")+")",null));});}
         @JavascriptInterface public void removeDownload(final String id,final String animeId,final String animeTitle,final String episode){backend.executor.execute(()->{String result=backend.removeDownload(animeId,animeTitle,episode);view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
         @JavascriptInterface public void listDownloads(final String id){backend.executor.execute(()->{String result=backend.downloadsList();view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
+        // Active (possibly resumed) downloads with their last-known state — the
+        // Downloads tab reconciles against this at boot, because download
+        // events emitted before the page loaded are lost.
+        @JavascriptInterface public void activeDownloads(final String id){backend.executor.execute(()->{String result=backend.activeDownloads();view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
+        // In-app playback of a downloaded file (Library > Downloads > Play):
+        // resolves the file and registers it with the loopback file server,
+        // returning the http URL + type the player can load.
+        @JavascriptInterface public void playDownload(final String id,final String animeTitle,final String episode){backend.executor.execute(()->{String result=backend.playDownload(animeTitle,episode);view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
         // Settings > Remove all downloads: cancel active tasks and delete every
         // file in Movies/Elsnime.
         @JavascriptInterface public void clearDownloads(final String id){backend.executor.execute(()->{String result=backend.clearDownloads();view.post(()->view.evaluateJavascript("window.__androidResponse("+JSONObject.quote(id)+","+JSONObject.quote(result)+")",null));});}
@@ -199,8 +236,16 @@ public final class MainActivity extends Activity {
 
     static final class Backend {
         final ExecutorService executor=Executors.newCachedThreadPool(); final AniDbScraper scraper=new AniDbScraper(); final HistoryDb db;
+        // The Downloader is process-wide (static): it survives an activity
+        // destroy mid-download (e.g. swipe-away + reopen), and DownloadService
+        // keeps referencing the same instance to mirror progress in the
+        // notification. Same for the event listener: the current AndroidApi's
+        // WebView must receive events even when the downloader was built by an
+        // earlier Backend.
+        private static volatile Downloader sharedDownloader;
+        private static volatile java.util.function.Consumer<JSONObject> downloadListener;
         final Downloader downloader;
-        private volatile java.util.function.Consumer<JSONObject> downloadListener;
+        private int downloadToken=0;
         private final java.util.concurrent.CopyOnWriteArrayList<Process> mpvProcesses=new java.util.concurrent.CopyOnWriteArrayList<>();
         // Progress batcher: keep only the latest entry per anime/episode in memory,
         // flush to SQLite in one transaction every 4s (or immediately when forced).
@@ -215,7 +260,12 @@ public final class MainActivity extends Activity {
             public void clearPrefix(String prefix){db.cacheClearPrefix(prefix);}
         });scraper.setTransport(CronetTransport.create(appContext));
         // Downloader pushes raw JSON events; AndroidApi forwards them to the page.
-        downloader=new Downloader(appContext,scraper,ev->{java.util.function.Consumer<JSONObject> l=downloadListener;if(l!=null)l.accept(ev);});
+        if(sharedDownloader==null)sharedDownloader=new Downloader(appContext,scraper,ev->{java.util.function.Consumer<JSONObject> l=downloadListener;if(l!=null)l.accept(ev);});
+        downloader=sharedDownloader;
+        DownloadService.attach(downloader);
+        // Resumed downloads (survived a process death) also need the foreground
+        // service, or the process could be killed again mid-resume.
+        if(downloader.activeCount()>0)DownloadService.start(appContext);
         }
         void setDownloadListener(java.util.function.Consumer<JSONObject> l){downloadListener=l;}
         String startDownload(String uid,String animeId,String animeTitle,String episode,String type,String quality){
@@ -224,7 +274,13 @@ public final class MainActivity extends Activity {
                 if(downloader.isActive(key))return "{\"active\":true}";
                 JSONObject f=downloader.findFile(animeTitle,episode);
                 if(f!=null)return new JSONObject().put("exists",true).put("fileName",f.optString("fileName")).toString();
+                // Enqueue first, then bring up the foreground service: it keeps
+                // the process alive (and shows the progress notification) while
+                // this download runs, even when the app is backgrounded or
+                // swiped away. The service checks activeCount() on start, so
+                // the task must already be visible to it.
                 downloader.start(new JSONObject().put("uid",uid).put("anime_id",animeId).put("anime_title",animeTitle).put("episode",episode).put("type",type).put("quality",quality));
+                DownloadService.start(appContext);
                 return ok();
             }catch(Exception e){try{return new JSONObject().put("error",e.getMessage()==null?"Download failed":e.getMessage()).toString();}catch(Exception ignored){return "{\"error\":\"Download failed\"}";}}
         }
@@ -234,6 +290,28 @@ public final class MainActivity extends Activity {
             try{return downloader.deleteFile(animeTitle,episode)?ok():new JSONObject().put("error","File not found").toString();}catch(Exception e){return "{\"error\":\"Delete failed\"}";}
         }
         String downloadsList(){try{return new JSONObject().put("files",downloader.listFiles()).toString();}catch(Exception e){return "{\"files\":[]}";}}
+        String activeDownloads(){try{return new JSONObject().put("downloads",downloader.activeDownloads()).toString();}catch(Exception e){return "{\"downloads\":[]}";}}
+        // Serve a downloaded file over the loopback HTTP server so the WebView
+        // player (and any external player) can fetch it. Returns the base URL
+        // plus the container type; the player appends .m3u8 for MPEG-TS so
+        // hls.js gets a playlist to load.
+        String playDownload(String animeTitle,String episode){
+            try{
+                JSONObject f=downloader.findFile(animeTitle,episode);
+                if(f==null)return new JSONObject().put("error","Download not found").toString();
+                String fileName=f.optString("fileName");
+                String dir=f.optString("dirName");
+                long size=f.optLong("size");
+                String lower=fileName.toLowerCase(java.util.Locale.ROOT);
+                String ext=lower.endsWith(".mp4")?"mp4":(lower.endsWith(".ts")?"ts":"");
+                if(ext.isEmpty())return new JSONObject().put("error","Unsupported file type").toString();
+                String token="dl"+(++downloadToken);
+                String url=LocalFileServer.get().register(token,size,ext.equals("mp4")?"video/mp4":"video/mp2t",offset->{
+                    try{return downloader.openFile(dir,fileName,offset);}catch(Exception e){return null;}
+                });
+                return new JSONObject().put("url",url).put("ext",ext).put("fileName",fileName).toString();
+            }catch(Exception e){try{return new JSONObject().put("error",e.getMessage()==null?"Could not open download":e.getMessage()).toString();}catch(Exception ignored){return "{\"error\":\"Could not open download\"}";}}
+        }
         String clearDownloads(){try{return new JSONObject().put("deleted",downloader.deleteAll()).toString();}catch(Exception e){return "{\"error\":\"Could not clear downloads\"}";}}
         String mpvStatus(){
             boolean cli=mpvCliAvailable(), app=mpvAppAvailable();
@@ -292,8 +370,23 @@ public final class MainActivity extends Activity {
                 // ani-cli uses. The CLI binary path is kept as a fallback for
                 // rooted setups where exec works.
                 String pkg=mpvAppPackage();
-                if(pkg!=null)launchMpvApp(url,title,streamReferer,userAgent,pkg);
+                if(pkg!=null)launchMpvApp(url,title,streamReferer,userAgent,pkg,null);
                 else if(mpvCliAvailable())launchMpv(url,title,streamReferer,userAgent);
+                else return out.put("error","MPV is not installed. Install mpv-android (is.xyz.mpv) from the Play Store or F-Droid.").toString();
+                return out.put("ok",true).put("app",pkg!=null).toString();
+            }catch(Exception e){try{return out.put("error",e.getMessage()==null?"Failed to launch MPV":e.getMessage()).toString();}catch(Exception ignored){return "{\"error\":\"Failed to launch MPV\"}";}}
+        }
+        // MPV for a downloaded file: the file is already served by the loopback
+        // LocalFileServer, so mpv (app or CLI) just opens that URL directly. The
+        // mime type is required by mpv-android's intent filter (extension-less
+        // loopback URL has no file extension to match on).
+        String playInMpvUrl(String url,String title,String mime){
+            JSONObject out=new JSONObject();
+            try{
+                if(url==null||url.isEmpty())return out.put("error","No file open").toString();
+                String pkg=mpvAppPackage();
+                if(pkg!=null)launchMpvApp(url,title,"","",pkg,(mime==null||mime.isEmpty())?"video/mp4":mime);
+                else if(mpvCliAvailable())launchMpv(url,title,"","");
                 else return out.put("error","MPV is not installed. Install mpv-android (is.xyz.mpv) from the Play Store or F-Droid.").toString();
                 return out.put("ok",true).put("app",pkg!=null).toString();
             }catch(Exception e){try{return out.put("error",e.getMessage()==null?"Failed to launch MPV":e.getMessage()).toString();}catch(Exception ignored){return "{\"error\":\"Failed to launch MPV\"}";}}
@@ -318,13 +411,18 @@ public final class MainActivity extends Activity {
             mpvProcesses.add(p);
             new Thread(()->{try{java.io.BufferedReader br=new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()));while(br.readLine()!=null){}}catch(Exception ignored){}try{p.waitFor();}catch(Exception ignored){}mpvProcesses.remove(p);},"mpv-pump").start();
         }
-        private void launchMpvApp(String url,String title,String referer,String userAgent,String pkg)throws Exception{
+        private void launchMpvApp(String url,String title,String referer,String userAgent,String pkg,String mime)throws Exception{
             // ani-cli's android_mpv: am start -a VIEW -d <url> -e title <title>.
             // mpv-android's intent extras are title/subs/position/decode_mode — no
             // referer or UA — so those are pushed through the config include below
             // (and mpv-android also has a global User-Agent in its own settings).
             android.content.Intent i=new android.content.Intent(android.content.Intent.ACTION_VIEW);
-            i.setData(android.net.Uri.parse(url));
+            // mpv-android only accepts http(s) URLs that carry a video/audio MIME
+            // type (or a recognized file extension). Downloaded files are served
+            // from the extension-less loopback token URL, so the MIME must be set
+            // explicitly or the intent resolves to nothing.
+            if(mime!=null&&!mime.isEmpty())i.setDataAndType(android.net.Uri.parse(url),mime);
+            else i.setData(android.net.Uri.parse(url));
             i.setPackage(pkg);
             i.putExtra("title",title);
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -510,7 +608,7 @@ public final class MainActivity extends Activity {
                 d.setTransactionSuccessful();
             }finally{d.endTransaction();}
         }
-        JSONObject settings() throws Exception{JSONObject o=new JSONObject().put("hw_accel",false).put("sub_lang","sub").put("player","web").put("theme","auto").put("aniskip","on").put("performance_mode","auto").put("accent_h",239).put("quality","720");try(Cursor c=getReadableDatabase().query("settings",new String[]{"key","value"},null,null,null,null,null)){while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);try{o.put(k,new JSONTokener(v).nextValue());}catch(Exception ignored){}}}return o;}
+        JSONObject settings() throws Exception{JSONObject o=new JSONObject().put("hw_accel",false).put("sub_lang","sub").put("player","web").put("theme","auto").put("aniskip","on").put("performance_mode","auto").put("accent_h",239).put("quality","480").put("separate_quality","off").put("stream_quality","480").put("download_quality","480");try(Cursor c=getReadableDatabase().query("settings",new String[]{"key","value"},null,null,null,null,null)){while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);try{o.put(k,new JSONTokener(v).nextValue());}catch(Exception ignored){}}}return o;}
         void settings(JSONObject x){
             SQLiteDatabase d=getWritableDatabase();
             JSONArray names=x.names();

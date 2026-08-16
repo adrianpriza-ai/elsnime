@@ -1,0 +1,116 @@
+<div id="toast-container"></div>
+
+		<!-- Pull-to-refresh indicator (drag down on Home/Search/History) -->
+		<div id="refresh-indicator" class="refresh-indicator" aria-hidden="true">
+			<svg viewBox="0 0 24 24">
+				<path d="M23 4v6h-6"></path>
+				<path d="M1 20v-6h6"></path>
+				<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+			</svg>
+			<span id="refresh-label">Pull to refresh</span>
+		</div>
+
+		<!-- Disambiguation picker: shown when several AniDB entries match a title -->
+		<div
+			id="resolve-modal"
+			class="resolve-overlay"
+			hidden
+			role="dialog"
+			aria-modal="true"
+			aria-label="Choose a title"
+			onclick="if(event.target===this)closeResolvePicker()"
+		>
+			<div class="resolve-sheet">
+				<div class="resolve-head">
+					<div class="resolve-kicker">Multiple titles matched</div>
+					<div class="resolve-subtitle" id="resolve-subtitle"></div>
+				</div>
+				<div id="resolve-list"></div>
+				<button class="resolve-cancel" onclick="closeResolvePicker()">Cancel</button>
+			</div>
+		</div>
+
+		<!-- Confirmation dialog: window.confirm() is a silent no-op inside the
+		     Android WebView (the app's WebChromeClient cancels JS dialogs), so
+		     destructive actions use this in-app dialog instead. -->
+		<div
+			id="confirm-modal"
+			class="confirm-overlay"
+			hidden
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="confirm-title"
+			aria-describedby="confirm-message"
+			onclick="if(event.target===this)closeConfirm(false)"
+		>
+			<div class="confirm-sheet" role="document">
+				<div class="confirm-title" id="confirm-title"></div>
+				<div class="confirm-message" id="confirm-message"></div>
+				<div class="confirm-actions">
+					<button
+						class="soft-btn"
+						type="button"
+						id="confirm-cancel"
+						onclick="closeConfirm(false)"
+					>
+						Cancel
+					</button>
+					<button
+						class="confirm-btn"
+						type="button"
+						id="confirm-ok"
+						onclick="closeConfirm(true)"
+					>
+						<span class="confirm-ok-icon"></span>
+						<span id="confirm-ok-label">Confirm</span>
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Episode picker: choose which episodes of a series to download -->
+		<div
+			id="ep-picker"
+			class="ep-picker-overlay"
+			hidden
+			role="dialog"
+			aria-modal="true"
+			aria-label="Pick episodes to download"
+			onclick="if(event.target===this)closeEpPicker()"
+		>
+			<div class="ep-picker-sheet">
+				<div class="ep-picker-head">
+					<div>
+						<div class="ep-picker-kicker">Download episodes</div>
+						<div class="ep-picker-title" id="ep-picker-title"></div>
+					</div>
+					<button
+						class="ep-picker-close"
+						type="button"
+						onclick="closeEpPicker()"
+						aria-label="Close"
+						title="Close"
+					>
+						<svg viewBox="0 0 24 24">
+							<line x1="18" y1="6" x2="6" y2="18"></line>
+							<line x1="6" y1="6" x2="18" y2="18"></line>
+						</svg>
+					</button>
+				</div>
+				<div class="ep-picker-hint">
+					Already-downloaded episodes are marked — pick the rest.
+				</div>
+				<div id="ep-picker-list" class="ep-picker-list"></div>
+				<div class="ep-picker-actions">
+					<button class="soft-btn" type="button" onclick="closeEpPicker()">Cancel</button>
+					<button
+						class="confirm-btn"
+						type="button"
+						id="ep-picker-download"
+						onclick="downloadPickedEpisodes()"
+					>
+						Download selected
+					</button>
+				</div>
+			</div>
+		</div>

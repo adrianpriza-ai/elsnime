@@ -34,6 +34,12 @@
 	transition: background var(--transition-fast);
 }
 
+/* The [hidden] attribute must win over display:flex above (the separate
+   stream/download quality rows are shown or hidden by the toggle). */
+.settings-row[hidden] {
+	display: none;
+}
+
 /* Android-style press/hover feedback on the whole row */
 .settings-row:hover {
 	background: var(--bg-hover);
@@ -102,10 +108,13 @@
 	padding: 10px 16px;
 }
 
-/* Default Quality — five options don't fit the inline pill, so the slider
-   becomes a full-width segmented grid with equal cells (ID-scoped so it beats
-   the generic .settings-row--stack .pill-slider rule above). */
-#pill-quality {
+/* Quality pills (Default/Stream/Download) — five options don't fit the inline
+   pill, so the slider becomes a full-width segmented grid with equal cells
+   (ID-scoped so it beats the generic .settings-row--stack .pill-slider rule
+   above). */
+#pill-quality,
+#pill-stream-quality,
+#pill-download-quality {
 	align-self: stretch;
 	display: grid;
 	grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -116,7 +125,9 @@
 	background: var(--surface-2);
 }
 
-#pill-quality .pill-option {
+#pill-quality .pill-option,
+#pill-stream-quality .pill-option,
+#pill-download-quality .pill-option {
 	padding: 9px 2px;
 	font-size: 13px;
 	text-align: center;
@@ -130,12 +141,16 @@
 
 /* :not(.active) — hovering the selected option must never replace its accent
    fill (touch WebViews stick :hover after a tap). */
-#pill-quality .pill-option:not(.active):hover {
+#pill-quality .pill-option:not(.active):hover,
+#pill-stream-quality .pill-option:not(.active):hover,
+#pill-download-quality .pill-option:not(.active):hover {
 	background: var(--bg-hover);
 	color: var(--text-primary);
 }
 
-#pill-quality .pill-option.active {
+#pill-quality .pill-option.active,
+#pill-stream-quality .pill-option.active,
+#pill-download-quality .pill-option.active {
 	background: var(--accent-primary);
 	color: var(--on-accent);
 	font-weight: 700;

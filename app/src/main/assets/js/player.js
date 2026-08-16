@@ -7,6 +7,14 @@
 //  to hide the system bars and rotate to landscape for the duration.
 let player;
 let hlsPlayer = null; // active hls.js instance (m3u8 streams only)
+let localPlayback = false; // playing a downloaded file, not a live stream
+//  Metadata for the download being played (history keying + MPV title) and the
+//  loopback URL the file is served from (MPV launch). Cleared when playback
+//  stops; history saving uses these instead of S.anime, which may be unset or
+//  belong to a different series when playing from Library › Downloads.
+let localPlaybackMeta = null; // { animeId, animeTitle, thumbnail, episode }
+let localPlaybackUrl = null;  // http://127.0.0.1:PORT/token served by the app
+let localPlaybackMime = 'video/mp4'; // container type of the active download
 
 //  Resume: saved-progress pickup when an episode is reopened. Don't offer it
 //  for the opening seconds, and treat anything within RESUME_TAIL_SECONDS of
@@ -23,6 +31,23 @@ async function savedResumePosition(ep) {
   try {
     const historyMap = await getHistoryMap();
     const h = historyMap && historyMap[ep];
+    if (!h || !Number.isFinite(h.progress) || !(h.duration > 0)) return 0;
+    if (h.progress < RESUME_MIN_SECONDS || h.progress >= h.duration - RESUME_TAIL_SECONDS
+        || h.progress / h.duration >= RESUME_MAX_RATIO) return 0;
+    return h.progress;
+  } catch (e) { return 0; }
+}
+
+//  Same lookup as savedResumePosition, but for a downloaded file: watch
+//  history is keyed by the download's own anime id, and S.anime may be unset
+//  or belong to a different series when playing from Library › Downloads.
+async function savedResumePositionFor(animeId, ep) {
+  try {
+    // Without an anime id the query would match rows from any series (the
+    // backend treats an empty anime_id filter as "all") — never guess.
+    if (animeId == null || String(animeId).trim() === '') return 0;
+    const rows = await api.get('/api/history?anime_id=' + encodeURIComponent(String(animeId))).catch(() => null);
+    const h = Array.isArray(rows) ? rows.find(r => String(r.episode) === String(ep)) : null;
     if (!h || !Number.isFinite(h.progress) || !(h.duration > 0)) return 0;
     if (h.progress < RESUME_MIN_SECONDS || h.progress >= h.duration - RESUME_TAIL_SECONDS
         || h.progress / h.duration >= RESUME_MAX_RATIO) return 0;
@@ -128,17 +153,20 @@ function buildQualityMenu() {
   addItem('auto', 'Auto');
   heights.forEach(h => addItem(String(h), h + 'p'));
 
-  // Start on the saved Default Quality (closest rendition if unavailable).
-  const setting = String(S.settings.quality || '720');
+  // Start on the saved quality (closest rendition if unavailable). Honors
+  // the separate stream quality when "Separate stream & download quality"
+  // is on.
+  const setting = String(streamQuality());
   if (setting === 'auto') {
     if (hlsPlayer) hlsPlayer.currentLevel = -1;
     setQualityMenuState('auto', 'Auto');
   } else {
-    applyHlsQuality(parseInt(setting, 10) || 720);
+    applyHlsQuality(parseInt(setting, 10) || 480);
   }
 }
 
 async function playEpisode(ep, index) {
+  localPlayback = false;
   S.currentEp = { ep, index };
   const al = S.anime?.anilist || {};
   const title = al.title?.english || S.anime?.title || '';
@@ -212,6 +240,46 @@ async function renderUpNext() {
     .join('');
 }
 
+//  Play a downloaded file (Library › Downloads › Play). .mp4 plays directly
+//  through the native <video> element; .ts goes through hls.js via a tiny
+//  VOD playlist served by the app's loopback file server (hls.js demuxes TS).
+//  dl (the download entry, when available) carries the series metadata so the
+//  playback counts as watch history, resumes from the saved position, and can
+//  be handed to MPV.
+async function playLocalFile(res, dl) {
+  localPlayback = true;
+  const episode = dl ? String(dl.episode) : null;
+  S.currentEp = { ep: episode, index: 0 };
+  localPlaybackMeta = dl ? {
+    animeId:    String(dl.animeId != null ? dl.animeId : ''),
+    animeTitle: String(dl.animeTitle || res.fileName || 'Downloaded episode'),
+    thumbnail:  dl.thumb || '',
+    episode,
+  } : null;
+  localPlaybackUrl = res.url || null;
+  localPlaybackMime = res.ext === 'ts' ? 'video/mp2t' : 'video/mp4';
+  const name = res.fileName || 'Downloaded file';
+  document.getElementById('player-title').innerHTML = '<span id="player-ep-label">' + name + '</span>';
+  document.getElementById('player-error').style.display = 'none';
+  const avatar = document.getElementById('player-avatar');
+  if (avatar) avatar.src = '';
+  const ch = document.getElementById('watch-channel-name');
+  if (ch) ch.textContent = 'Downloaded episode';
+  const sub = document.getElementById('watch-channel-sub');
+  if (sub) sub.textContent = res.ext === 'mp4' ? 'Local MP4 file' : 'Local MPEG-TS file';
+  document.getElementById('btn-prev').disabled = true;
+  document.getElementById('btn-next').disabled = true;
+  const upNext = document.getElementById('upnext-count');
+  if (upNext) upNext.textContent = '';
+  const eps = document.getElementById('eps-list');
+  if (eps) eps.innerHTML = '';
+  pushView('player');
+  // Pick up where the user left off (history is keyed by this download's anime
+  // id + episode, which may differ from whatever anime is in S.anime).
+  const resumeAt = dl ? await savedResumePositionFor(dl.animeId, dl.episode) : 0;
+  loadStream(res.url + (res.ext === 'ts' ? '.m3u8' : ''), res.ext === 'ts' ? 'hls' : 'mp4', null, null, resumeAt);
+}
+
 async function startWebPlayer(stream, ep) {
   // proxy URL → web player; raw CDN URL is kept for MPV. The master playlist
   // (when present) goes to hls.js so the quality menu lists every rendition.
@@ -227,6 +295,9 @@ async function startWebPlayer(stream, ep) {
 }
 
 function loadStream(url, type, master, referer, resumeAt) {
+  // Forget the previous episode's save cadence so a resume-seek isn't mistaken
+  // for an unchanged position (and skipped) on the first timeupdate.
+  progressSaveState = { at: 0, progress: 0 };
   // Tear down the previous instance. destroy() removes Plyr's UI and puts the
   // original <video> element back into #video-wrap ready for the next init.
   if (player) { try { player.destroy(); } catch (e) {} player = null; }
@@ -345,16 +416,42 @@ function loadStream(url, type, master, referer, resumeAt) {
     // there are no letterbox bars and nothing looks stretched or squished.
     // The 16:9 CSS placeholder stays until then, keeping the box sized to the
     // screen width instead of the video's intrinsic pixel size.
+    // Pick up where the user left off. Native MP4 exposes its real duration
+    // and seekable range at loadedmetadata, so the seek applies there. hls.js
+    // (.ts downloads) repositions the media when the source opens — that
+    // overrides a JS seek applied before data exists — and its VOD playlist
+    // duration is a placeholder that can exceed the real file, so the seek
+    // waits until the seekable range actually covers the target (fires on
+    // seekablechange/playing) and never seeks past buffered data. Seeking only
+    // into reachable territory is what keeps the player alive: a seek into
+    // un-buffered space just spins forever with no UI.
+    let resumeToastShown = false;
+    let resumeHeld = false;
+    const seekableEnd = () => (v.seekable && v.seekable.length)
+      ? v.seekable.end(v.seekable.length - 1)
+      : 0;
+    const seekToResume = () => {
+      if (resumeHeld || !(resumeAt > 0)) return;
+      if (v.currentTime >= resumeAt - 1) { resumeHeld = true; return; }
+      if (seekableEnd() < resumeAt - 1) return; // target not buffered yet — wait
+      resumeHeld = true;
+      try { v.currentTime = resumeAt; } catch (e) {}
+    };
+    const applyResume = () => {
+      if (resumeToastShown || !(resumeAt > 0)) return;
+      if (!Number.isFinite(v.duration) || v.duration <= 0) return;
+      resumeToastShown = true;
+      showToast('Resuming from ' + formatTime(resumeAt), 'info');
+      seekToResume(); // only acts when the target is already buffered
+    };
     player.on('loadedmetadata', () => {
       const vw = v.videoWidth, vh = v.videoHeight;
       if (vw && vh) document.getElementById('video-wrap').style.aspectRatio = vw + ' / ' + vh;
-      // Pick up where the user left off. Seeking only works once the duration
-      // is known — earlier requests get ignored or clamped by the browser.
-      if (resumeAt > 0 && Number.isFinite(v.duration) && v.duration > 0) {
-        try { v.currentTime = Math.min(resumeAt, Math.max(0, v.duration - 1)); } catch (e) {}
-        showToast('Resuming from ' + formatTime(resumeAt), 'info');
-      }
+      applyResume();
     });
+    v.addEventListener('durationchange', applyResume);
+    v.addEventListener('seekablechange', seekToResume);
+    v.addEventListener('playing', seekToResume);
     player.on('error', () => {
       // Plyr only emits 'error' for real failures (hls.js retries recoverable
       // errors internally and they never reach the media element), so every
@@ -378,11 +475,17 @@ function loadStream(url, type, master, referer, resumeAt) {
 
 //  Stop playback: tears down the stream so it stops downloading data 
 function stopPlayback() {
+  // Save the final position BEFORE tearing down: the video element is the only
+  // reliable source, and the local-playback metadata must still be set so the
+  // row lands under the download's own anime id (not a stale S.anime).
+  const v = document.getElementById('video');
+  if (v && v.currentTime > 0 && S.currentEp && S.currentEp.ep) {
+    try { maybePersistPlaybackProgress(true); } catch (e) {}
+  }
   // destroy() pauses and tears down the stream so it stops downloading data.
   if (player) { try { player.destroy(); } catch (e) {} player = null; }
   // Tear down hls.js too, otherwise its segment fetches keep running.
   if (hlsPlayer) { try { hlsPlayer.destroy(); } catch (e) {} hlsPlayer = null; }
-  const v = document.getElementById('video');
   try {
     v.pause();
     v.removeAttribute('src');
@@ -401,6 +504,11 @@ function stopPlayback() {
   skipShownIndex = -1;
   const skipBtn = document.getElementById('skip-btn');
   if (skipBtn) skipBtn.hidden = true;
+  // Clear the local-playback state last — after the final progress save above.
+  localPlayback = false;
+  localPlaybackMeta = null;
+  localPlaybackUrl = null;
+  localPlaybackMime = 'video/mp4';
 }
 
 function showPlayerError(msg) {
@@ -436,13 +544,14 @@ function hlsFatalMessage(data) {
 }
 
 function playAdjacentEp(dir) {
+  if (localPlayback || !S.currentEp) return;
   const next = S.currentEp.index + dir;
   if (next < 0 || next >= S.episodes.length) return;
   playEpisode(S.episodes[next], next);
 }
 
 async function markWatched() {
-  if (!S.anime || !S.currentEp || !S.episodes.length) return;
+  if (localPlayback || !S.anime || !S.currentEp || !S.currentEp.ep || !S.episodes.length) return;
   const al = S.anime.anilist || {};
   // Set a watched-through boundary: every episode up to (and including) the
   // current one becomes watched, and episodes past it that were previously
@@ -461,11 +570,22 @@ async function markWatched() {
 }
 
 async function playInMpv() {
-  if (!S.anime || !S.currentEp) return;
   if (!S.mpv.available) {
     showToast('MPV is not installed on this device', 'error');
     return;
   }
+  // Downloaded files play from the app's loopback file server — hand that URL
+  // straight to mpv (app or CLI) instead of scraping a stream.
+  if (localPlayback) {
+    if (!localPlaybackUrl) { showToast('No local file to open in MPV', 'error'); return; }
+    const title = (localPlaybackMeta && localPlaybackMeta.animeTitle ? localPlaybackMeta.animeTitle : 'Downloaded episode')
+      + (localPlaybackMeta && localPlaybackMeta.episode ? ' - Episode ' + localPlaybackMeta.episode : '');
+    const res = await playInMpvUrlNative(localPlaybackUrl, title, localPlaybackMime);
+    if (res.error) showPlayerError(res.error);
+    else showToast('Launched in MPV', 'success');
+    return;
+  }
+  if (!S.anime || !S.currentEp || !S.currentEp.ep) return;
   const res = await playInMpvNative(S.anime.id, S.currentEp.ep, S.translation);
   if (res.error) {
     showPlayerError(res.error);
@@ -479,12 +599,12 @@ async function playInMpv() {
 //  toast when already on disk (deleting happens in the Downloads tab or the
 //  episode rows).
 async function downloadCurrentEpisode() {
-  if (!S.anime || !S.currentEp) return;
+  if (localPlayback || !S.anime || !S.currentEp || !S.currentEp.ep) return;
   const title = animeDisplayTitle();
   const state = episodeDownloadState(S.anime.id, title, S.currentEp.ep);
   const dl = findDownload(S.anime.id, S.currentEp.ep);
   if (state === 'done' || (dl && (dl.state === 'done' || dl.state === 'exists'))) {
-    showToast('Already downloaded — manage it in the Downloads tab', 'info');
+    showToast('Already downloaded — manage it in Library › Downloads', 'info');
     return;
   }
   if (dl && DOWNLOAD_ACTIVE.includes(dl.state)) {

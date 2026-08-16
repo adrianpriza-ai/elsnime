@@ -19,7 +19,7 @@ Elsnime is a client-side metadata parser and video stream resolver.
 - **No media hosting**: It does not host, upload, store, or manage any audio/video streams, media, or files indexed in its interface.
 - **User-Initiated Downloads**: Downloading saves a local copy to the device's `Movies/Elsnime/` folder at the user's request. Copies stay on the user's device — never hosted, re-distributed, or re-uploaded by Elsnime or its developer — and downloading is optional.
 - **Scraping and Parsing**: It functions as a specialized browser engine that scrapes public text-based directories (such as AniDB) and resolves standard HLS (.m3u8) playlist files from public, third-party sources.
-- All media files, indexing directories, and streaming components are hosted on external servers independent of Elsnime and its developer. Adrian Priza Wijaya holds no control over, and is not responsible for, the content or services of these external platforms (including but not limited to AniDB, Jikan, and AniList).
+- All media files, indexing directories, and streaming components are hosted on external servers independent of Elsnime and its developer. Adrian Priza Wijaya has no control over, and is not responsible for, the content or services of these external platforms (including but not limited to AniDB, Jikan, and AniList).
 
 ---
 
@@ -36,7 +36,7 @@ Copyright owners or licensing agents who wish to remove any content parsed by th
 Elsnime is provided "as-is" with no warranties, representations, or guarantees, express or implied, regarding its performance, longevity, or safety. This disclaimer covers only Elsnime itself, not any third-party services, APIs, or streaming platforms it interacts with.
 
 - **User Responsibility**: Users assume all risk and responsibility for how they choose to utilize this software.
-- **No Liability**: Under no circumstances shall Adrian Priza Wijaya or contributors be held liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including bandwidth expenses, service interruptions, or legal disputes) arising in any way out of the use, misuse, or distribution of this software.
+- **No Liability**: Under no circumstances shall Adrian Priza Wijaya or contributors be held liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including bandwidth expenses, service interruptions, or legal disputes) arising from the use, misuse, or distribution of this software.
 
 ---
 

@@ -1,0 +1,517 @@
+<!-- You: the app's personal hub, like YouTube's You page. History is shown
+     inline (1-1 copy of Home's Continue Watching); Downloads, Saved for later
+     and Settings open as sub-pages with a back arrow. -->
+<div class="view" id="view-library">
+	<!-- Hub (default): history inline + shortcut rows -->
+	<div id="you-hub">
+		<div id="you-history-section" class="home-section"></div>
+
+		<div class="you-shortcuts">
+			<button
+				class="you-shortcut"
+				type="button"
+				onclick="openLibrarySection('downloads')"
+			>
+				<span class="you-shortcut-label">Downloads</span>
+				<svg class="you-shortcut-chevron" viewBox="0 0 24 24">
+					<polyline points="9 18 15 12 9 6"></polyline>
+				</svg>
+			</button>
+			<button
+				class="you-shortcut"
+				type="button"
+				onclick="openLibrarySection('watchlater')"
+			>
+				<span class="you-shortcut-label">Saved for later</span>
+				<svg class="you-shortcut-chevron" viewBox="0 0 24 24">
+					<polyline points="9 18 15 12 9 6"></polyline>
+				</svg>
+			</button>
+			<button
+				class="you-shortcut"
+				type="button"
+				onclick="openLibrarySection('settings')"
+			>
+				<span class="you-shortcut-label">Settings</span>
+				<svg class="you-shortcut-chevron" viewBox="0 0 24 24">
+					<polyline points="9 18 15 12 9 6"></polyline>
+				</svg>
+			</button>
+		</div>
+	</div>
+
+	<!-- Downloads: grouped per series, episodes picked from a series -->
+	<section class="library-section" id="you-page-downloads" hidden>
+		<button class="back-btn" onclick="youBack()">
+			<svg
+				width="18"
+				height="18"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			>
+				<polyline points="15 18 9 12 15 6"></polyline>
+			</svg>
+			Back
+		</button>
+		<div class="page-title">Downloads</div>
+		<div id="downloads-list"></div>
+	</section>
+
+	<!-- Saved for later: saved series, open without searching -->
+	<section class="library-section" id="you-page-watchlater" hidden>
+		<button class="back-btn" onclick="youBack()">
+			<svg
+				width="18"
+				height="18"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			>
+				<polyline points="15 18 9 12 15 6"></polyline>
+			</svg>
+			Back
+		</button>
+		<div class="page-title">Saved for later</div>
+		<div id="watchlater-list"></div>
+	</section>
+
+	<!-- Full history (also reached from Home via See all) -->
+	<section class="library-section" id="you-page-history" hidden>
+		<button class="back-btn" onclick="youBack()">
+			<svg
+				width="18"
+				height="18"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			>
+				<polyline points="15 18 9 12 15 6"></polyline>
+			</svg>
+			Back
+		</button>
+		<div class="page-title">History</div>
+		<div id="history-list"></div>
+	</section>
+
+	<!-- Settings -->
+	<section class="library-section" id="you-page-settings" hidden>
+		<button class="back-btn" onclick="youBack()">
+			<svg
+				width="18"
+				height="18"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			>
+				<polyline points="15 18 9 12 15 6"></polyline>
+			</svg>
+			Back
+		</button>
+		<div class="page-title">Settings</div>
+		<div class="settings-shell">
+			<section class="settings-group">
+				<div class="settings-kicker">Appearance</div>
+				<div class="settings-list">
+					<div class="settings-row">
+						<div class="settings-label">Theme</div>
+						<div
+							class="pill-slider"
+							id="pill-theme"
+							data-setting="theme"
+						>
+							<div class="pill-highlight"></div>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="dark"
+								onclick="selectPillOption(this)"
+							>
+								Dark
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="light"
+								onclick="selectPillOption(this)"
+							>
+								Light
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="auto"
+								onclick="selectPillOption(this)"
+							>
+								Auto
+							</button>
+						</div>
+					</div>
+				</div>
+			</section>
+			<section class="settings-group">
+				<div class="settings-kicker">Playback</div>
+				<div class="settings-list">
+					<div class="settings-row">
+						<div class="settings-label">Default Player</div>
+						<div
+							class="pill-slider"
+							id="pill-player"
+							data-setting="player"
+						>
+							<div class="pill-highlight"></div>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="web"
+								onclick="selectPillOption(this)"
+							>
+								Web
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="mpv"
+								onclick="selectPillOption(this)"
+							>
+								MPV
+							</button>
+						</div>
+					</div>
+					<div class="settings-row">
+						<div class="settings-label">Default Version</div>
+						<div
+							class="pill-slider"
+							id="pill-lang"
+							data-setting="sub_lang"
+						>
+							<div class="pill-highlight"></div>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="sub"
+								onclick="selectPillOption(this)"
+							>
+								Sub
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="dub"
+								onclick="selectPillOption(this)"
+							>
+								Dub
+							</button>
+						</div>
+					</div>
+					<div class="settings-row">
+						<div class="settings-label">Skip intros &amp; credits</div>
+						<div
+							class="pill-slider"
+							id="pill-aniskip"
+							data-setting="aniskip"
+						>
+							<div class="pill-highlight"></div>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="on"
+								onclick="selectPillOption(this)"
+							>
+								On
+							</button>
+							<button
+								class="pill-option"								type="button"
+								data-value="off"
+								onclick="selectPillOption(this)"
+							>
+								Off
+							</button>
+						</div>
+					</div>
+					<div class="settings-row">
+						<div class="settings-label">Separate stream &amp; download quality</div>
+						<div
+							class="pill-slider"
+							id="pill-sep-quality"
+							data-setting="separate_quality"
+						>
+							<div class="pill-highlight"></div>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="on"
+								onclick="selectPillOption(this)"
+							>
+								On
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="off"
+								onclick="selectPillOption(this)"
+							>
+								Off
+							</button>
+						</div>
+					</div>
+					<div
+						class="settings-row settings-row--stack"
+						id="row-default-quality"
+					>
+						<div class="settings-label">Default Quality</div>
+						<div
+							class="pill-slider"
+							id="pill-quality"
+							data-setting="quality"
+						>
+							<div class="pill-highlight"></div>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="auto"
+								onclick="selectPillOption(this)"
+							>
+								Auto
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="1080"
+								onclick="selectPillOption(this)"
+							>
+								1080p
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="720"
+								onclick="selectPillOption(this)"
+							>
+								720p
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="480"
+								onclick="selectPillOption(this)"
+							>
+								480p
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="360"
+								onclick="selectPillOption(this)"
+							>
+								360p
+							</button>
+						</div>
+					</div>
+					<div
+						class="settings-row settings-row--stack"
+						id="row-stream-quality"
+						hidden
+					>
+						<div class="settings-label">Stream Quality</div>
+						<div
+							class="pill-slider"
+							id="pill-stream-quality"
+							data-setting="stream_quality"
+						>
+							<div class="pill-highlight"></div>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="auto"
+								onclick="selectPillOption(this)"
+							>
+								Auto
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="1080"
+								onclick="selectPillOption(this)"
+							>
+								1080p
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="720"
+								onclick="selectPillOption(this)"
+							>
+								720p
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="480"
+								onclick="selectPillOption(this)"
+							>
+								480p
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="360"
+								onclick="selectPillOption(this)"
+							>
+								360p
+							</button>
+						</div>
+					</div>
+					<div
+						class="settings-row settings-row--stack"
+						id="row-download-quality"
+						hidden
+					>
+						<div class="settings-label">Download Quality</div>
+						<div
+							class="pill-slider"
+							id="pill-download-quality"
+							data-setting="download_quality"
+						>
+							<div class="pill-highlight"></div>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="auto"
+								onclick="selectPillOption(this)"
+							>
+								Best
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="1080"
+								onclick="selectPillOption(this)"
+							>
+								1080p
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="720"
+								onclick="selectPillOption(this)"
+							>
+								720p
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="480"
+								onclick="selectPillOption(this)"
+							>
+								480p
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="360"
+								onclick="selectPillOption(this)"
+							>
+								360p
+							</button>
+						</div>
+					</div>
+				</div>
+			</section>
+			<section class="settings-group">
+				<div class="settings-kicker">Content</div>
+				<div class="settings-list">
+					<div class="settings-row">
+						<div class="settings-label">Mature content</div>
+						<div
+							class="pill-slider"
+							id="pill-adult"
+							data-setting="show_adult"
+						>
+							<div class="pill-highlight"></div>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="off"
+								onclick="selectPillOption(this)"
+							>
+								Off
+							</button>
+							<button
+								class="pill-option"
+								type="button"
+								data-value="on"
+								onclick="selectPillOption(this)"
+							>
+								On
+							</button>
+						</div>
+					</div>
+				</div>
+			</section>
+			<section class="settings-group">
+				<div class="settings-kicker">Data</div>
+				<div class="settings-list">
+					<div class="settings-row">
+						<div class="settings-label">
+							Reset all settings to defaults
+						</div>
+						<button
+							class="soft-btn"
+							type="button"
+							onclick="resetSettings()"
+						>
+							Reset
+						</button>
+					</div>
+					<div class="settings-row">
+						<div class="settings-label">Clear watch history</div>
+						<button
+							class="danger-btn"
+							type="button"
+							onclick="clearHistory()"
+						>
+							<svg viewBox="0 0 24 24">
+								<polyline points="3 6 5 6 21 6"></polyline>
+								<path
+									d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+								></path>
+							</svg>
+							Clear
+						</button>
+					</div>
+					<div class="settings-row">
+						<div class="settings-label">
+							Remove all downloads
+						</div>
+						<button
+							class="danger-btn"
+							type="button"
+							onclick="clearAllDownloads()"
+						>
+							<svg viewBox="0 0 24 24">
+								<polyline points="3 6 5 6 21 6"></polyline>
+								<path
+									d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+								></path>
+							</svg>
+							Remove all
+						</button>
+					</div>
+				</div>
+			</section>
+		</div>
+	</section>
+</div>

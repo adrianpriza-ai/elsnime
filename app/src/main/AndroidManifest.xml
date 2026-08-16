@@ -1,5 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Download foreground service + progress notification: keeps downloads
+         running when the app is backgrounded/swiped away. dataSync is the
+         standard type for downloads (API 34+ requires the matching permission). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- Downloads: direct public-dir writes on API 23-28 only; API 29+ uses
          MediaStore (no permission). maxSdkVersion keeps it off Android 10+. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
@@ -10,11 +16,14 @@
         <package android:name="is.xyz.mpv" />
         <package android:name="is.mpv.android" />
     </queries>
-    <application android:theme="@style/AppTheme" android:label="Elsnime" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:usesCleartextTraffic="false">
+    <application android:theme="@style/AppTheme" android:label="Elsnime" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:usesCleartextTraffic="false" android:networkSecurityConfig="@xml/network_security_config">
         <activity android:name=".MainActivity" android:screenOrientation="unspecified" android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden|uiMode" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- stopWithTask=false: swiping the app away must not kill an active
+             download (the foreground notification keeps the user informed). -->
+        <service android:name=".DownloadService" android:exported="false" android:stopWithTask="false" android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

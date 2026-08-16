@@ -15,17 +15,22 @@ async function loadHome() {
 }
 
 async function loadHomeContinue(existing) {
-  const el = document.getElementById('home-continue-section');
+  return loadContinueWatching(document.getElementById('home-continue-section'), existing);
+}
+
+// Renders the Continue Watching row into the given element. Shared by Home and
+// the You hub so the two stay a 1-1 copy of the same history feed.
+async function loadContinueWatching(el, existing) {
   if (!el) return;
   const hist = existing || await api.get('/api/history').catch(() => []);
   S.history = hist;
   // One card per series (history is grouped by anime, not episode). The row is
-  // capped at 10 cards; the See-more button opens the full History tab.
+  // capped at 10 cards; the See-more button opens the full History page.
   const groups = groupHistoryByAnime(hist);
   if (!groups.length) { el.innerHTML = ''; return; }
   el.innerHTML = '<div class="section-head"><div class="section-title">Continue Watching</div>' +
-    // Always shown: it is the only in-UI route to the full History tab.
-    '<button class="see-all" onclick="pushView(\'history\')">See more</button></div>' +
+    // Always shown: it is the only in-UI route to the full History page.
+    '<button class="see-all" onclick="openLibrarySection(\'history\')">See more</button></div>' +
     '<div class="continue-row">' +
     groups.slice(0, 10).map(g => {
       const h = g.latest;

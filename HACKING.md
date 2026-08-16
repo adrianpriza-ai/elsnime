@@ -1,6 +1,6 @@
 # Elsnime Developer & Hacking Guide
 
-Elsnime's internals: architecture, project layout, JS-to-Java bridge, downloads engine, platform integration, and caching.
+Elsnime's internals: architecture, project layout, JS-to-Java bridge, download engine, platform integration, and caching.
 
 ---
 
@@ -24,7 +24,8 @@ A vanilla JS frontend inside an Android WebView, backed by native Java classes.
 |                      NATIVE JAVA BACKEND                     |
 | - MainActivity (Host, AndroidApi bridge, Backend, HistoryDb) |
 | - AniDbScraper (Parsing, Metadata enrichment, API calls)     |
-| - Downloader (HLS → MP4 download engine)                     |
+| - Downloader (HLS → MP4 download engine, resume)          |
+| - DownloadService (foreground service + progress notif.) |
 | - CronetTransport (HTTP networking)                          |
 +--------------------------------------------------------------+
 ```
@@ -40,28 +41,35 @@ app/src/main/
 ├── AndroidManifest.xml            # permissions, configChanges (orientation etc.)
 ├── assets/                        # the entire frontend — no build step or bundler
 │   ├── ui.html                    # single-page shell, all views
-│   ├── css/                       # 13 stylesheets, one per view/component
-│   ├── js/                        # 8 plain-JS modules (no framework)
+│   ├── css/                       # 15 stylesheets, one per view/component
+│   ├── js/                        # 10 plain-JS modules (no framework)
 │   └── vendor/                    # vendored third-party libs (no CDN dependency)
 └── java/com/elsnime/
     ├── MainActivity.java          # WebView host, AndroidApi bridge, Backend, HistoryDb
     ├── AniDbScraper.java          # scraping, metadata enrichment, stream resolution
     ├── CronetTransport.java       # HttpTransport implementation (Cronet)
-    └── Downloader.java            # HLS segment downloader + MP4 remuxer
+    ├── LocalFileServer.java       # loopback HTTP server for playing finished downloads
+    ├── Downloader.java            # HLS downloader: stitches segments, remuxes .ts → .mp4, resume
+    └── DownloadService.java       # foreground service: background downloads + progress notification
 ```
+
+The `.ts → .mp4` remux uses the **media3 muxer** (`androidx.media3:media3-muxer`) — a
+pure-Java MP4 writer. The system `MediaMuxer` is never used (see step 4 below).
 
 ### Frontend modules (`assets/js/`)
 
 | File | Responsibility |
 |-|-|
-| `boot.js` | Startup, view routing, keyboard shortcuts (incl. `D` → Downloads), pull-to-refresh |
+| `ui-loader.js` | Injects the `views/*.html` partials into `#main`, `#bottom-nav`, `#overlays`; exposes `window.__UI_READY` (loaded first) |
+| `boot.js` | Startup (awaits `__UI_READY`), view routing, keyboard shortcuts (incl. `D` → Downloads), pull-to-refresh |
 | `core.js` | `androidRequest()` bridge helper, `showToast()`, shared utilities, `playInMpvNative()` |
 | `home.js` | Home dashboard: trending, continue-watching row |
-| `search.js` | Fuzzy search, category chips |
+| `search.js` | Search box + browse-by-genre grid (name/count cards, demographics, themes); genre-word queries route to the tag search |
 | `detail.js` | Series pages, episode grid, per-episode + Download All wiring |
-| `player.js` | Plyr + hls.js wiring, skip buttons, resume, MPV launch, error mapping |
+| `player.js` | Plyr + hls.js wiring, skip buttons, resume, MPV launch (streams + downloads), local-file playback, error mapping |
 | `history.js` | Watch history view |
-| `downloads.js` | Downloads tab: queue state, progress rendering, localStorage persistence, `__downloadEvent` handling |
+| `watchlater.js` | Saved-for-later list (localStorage) |
+| `downloads.js` | Downloads tab: queue state, progress rendering, localStorage persistence, `__downloadEvent` handling, boot reconciliation against native active downloads |
 
 ### Vendored assets (`assets/vendor/`)
 
@@ -126,21 +134,25 @@ All methods are `@JavascriptInterface` on the inner `AndroidApi` class in `MainA
 | Method | Args | Purpose |
 |-|-|-|
 | `request` | `id, method, path, body` | Generic API: scraping, search, metadata, DB ops |
+| `readAsset` | `path` | **Synchronous** (no `id`/callback): read a bundled `assets/` file, used by `ui-loader.js` for the `views/*.html` partials (WebView `fetch()` on `file://` is CORS-blocked) |
 | `systemTheme` | — | Real device theme (WebView's `prefers-color-scheme` is unreliable) |
 | `setFullscreen` | `on` | Immersive bars + landscape rotation for player fullscreen |
 | `saveProgress` | `id, animeId, animeTitle, episode, progress, duration, thumbnail, force` | Persist watch position |
 | `refreshCache` | `prefixes` | Scoped cache invalidation (`GLOB` prefix deletion) |
 | `mpvStatus` | `id` | Whether mpv-android / mpv CLI is available |
 | `playInMpv` | `id, animeId, animeTitle, episode, type, referer, userAgent` | Launch current episode in mpv |
+| `playInMpvUrl` | `id, url, title, mime` | Launch mpv directly on a URL — used for downloaded files served by the loopback server; `mime` (the container type) lets mpv-android's intent filter accept the extension-less token URL |
 | `startDownload` | `id, uid, animeId, animeTitle, episode, type, quality` | Enqueue a download |
 | `cancelDownload` | `id, animeId, episode` | Cancel an active download |
 | `removeDownload` | `id, animeId, animeTitle, episode` | Delete a finished file |
 | `listDownloads` | `id` | Enumerate files on disk (reconciles queue state) |
+| `activeDownloads` | `id` | Active (incl. resumed) downloads with their last-known state — the tab reconciles against it at boot |
+| `playDownload` | `id, animeTitle, episode` | Register a finished download with the loopback file server; returns `{url, ext}` for in-app playback |
 | `clearDownloads` | `id` | Cancel all active downloads + delete everything under `Movies/Elsnime` |
 
 ### 3. Backend-to-Frontend push events
 
-The download engine pushes events into the WebView without polling: Java emits `window.__downloadEvent(json)`; `js/downloads.js` listens and updates the queue UI in place.
+The download engine pushes events into the WebView without polling: Java emits `window.__downloadEvent(json)`; `js/downloads.js` listens and updates the queue UI in place. Events emitted before the page loads (e.g. a download resumed at startup) would be lost, so the Downloads tab also queries `activeDownloads()` at boot and feeds the results through the same handler.
 
 ---
 
@@ -152,21 +164,27 @@ The download engine pushes events into the WebView without polling: Java emits `
 
 - A **single worker thread** (`Executors.newSingleThreadExecutor()`) processes tasks one at a time; the queue is a `ConcurrentHashMap` keyed by `animeId + episode`.
 - Each `Task` has a `volatile boolean cancelled` flag; the worker checks it between segments and aborts cleanly, deleting the temp file.
-- Progress events are emitted from the worker thread; the listener posts them to the main thread via `view.post(evaluateJavascript(...))`.
+- Progress events are emitted from the worker thread; the listeners (the WebView bridge *and* the notification service) each receive every event.
+
+### Background downloads & resume
+
+Downloads run under a **foreground service** — `DownloadService`, type `dataSync` — so the queue keeps going when the app is backgrounded or swiped away from recents (`android:stopWithTask="false"`). While any task is active the service posts a persistent notification (episode title, percent + bytes, a Cancel action) and taps through to the app; once the queue drains it posts a transient "Download complete/failed" notification and stops itself. `POST_NOTIFICATIONS` (Android 13+) is requested at launch; denying it only hides the notification. The service does not own the queue — it attaches an extra event listener to the process-wide `Downloader` and mirrors whatever the worker emits.
+
+Every active task also writes a **durable record** to SharedPreferences (`downloads`): identity, type/quality, and a resume boundary (`segmentsDone` / `bytesDone` / `initDone` for fMP4 init segments), committed **after each completed segment** so the boundary survives an immediate process death. On the next launch `Downloader.resumeInterrupted()` re-enqueues every record whose partial `.part` temp still exists (records with progress but no temp are dropped — the cache was cleared — and a `queued` event is emitted so the UI sees the task). `downloadSegments` then validates the boundary (playlist length unchanged, temp not shorter than `bytesDone`), truncates any partial trailing segment, and fetches only the remaining segments — fMP4 init-segment handling included. Interrupted mid-remux, the download re-runs the conversion on the complete temp. Cancel/delete/`deleteAll()` all clear records (and the in-flight persist refuses to write for a cancelled task), so nothing cancelled ever resumes; a stream that can't be re-resolved after a long gap simply fails with the record cleared.
 
 ### Pipeline (`run(Task)`)
 
 1. **Resolve** — reuses `AniDbScraper` stream resolution with the CDN's referer + browser UA. If a master playlist and target quality are available, `pickVariant()` picks the rendition closest to the **Default Quality** setting.
-2. **Fetch manifest** — parses `#EXTINF` segments; **AES-128 encrypted** playlists (`#EXT-X-KEY:METHOD=AES-128`) are decrypted per-segment (CBC, PKCS5/PKCS7 padding, IV from the key URI or media sequence). fMP4 playlists (`#EXT-X-MAP`) are rejected with a clear error.
-3. **Download segments** — fetched sequentially, appended to a temp file, emitting `downloading` events with `segDone/segTotal/bytes`.
-4. **Remux** — the concatenated MPEG-TS is remuxed to **MP4** via `MediaExtractor` + `MediaMuxer`. If a stream can't be muxed (exotic codecs), the raw `.ts` file is kept.
+2. **Fetch manifest** — parses `#EXTINF` segments; **AES-128 encrypted** playlists (`#EXT-X-KEY:METHOD=AES-128`) are decrypted per-segment (CBC, PKCS5/PKCS7 padding, IV from the key URI or media sequence). fMP4 playlists (`#EXT-X-MAP`) download the init segment + fragments by plain concatenation (already MP4).
+3. **Download segments** — fetched concurrently (a small window of 3, appended strictly in playlist order since TS/fMP4 concatenation is order-sensitive) to a temp file, emitting `downloading` events with `segDone/segTotal/bytes`.
+4. **Remux (media3 muxer)** — MPEG-TS is remuxed to `.mp4` with `androidx.media3:media3-muxer`'s pure-Java `Mp4Muxer` (H.264/HEVC + AAC; it handles B-frames/ctts, edit lists, and per-PES multi-frame audio samples itself, so track durations are exact). The system `MediaMuxer` is never used: its native MPEG4Writer crashes on some devices — a C++ failure Java can't catch. Streams that can't be muxed (non-H.264/AAC codecs, >4 GB) are stored as raw `.ts`, so a download never fails just because of the container.
 5. **Store** — on **API 29+**, files are written through `MediaStore` (`IS_PENDING=1` → write → `IS_PENDING=0`, `RELATIVE_PATH=Movies/Elsnime/<anime>/`) with **no permission required**. On **API 23–28**, legacy `WRITE_EXTERNAL_STORAGE` is requested once and files are written via the direct path.
 
 ### Event states & disk reconciliation
 
 States: `resolving` → `downloading` → `remuxing` → `done` (with stored file name + size), or `error (msg)` / `cancelled`. The `done` event's `fileName` flips episode icons to ✓ and persists the queue in `localStorage`.
 
-`listDownloads()` queries MediaStore (API 29+) or the direct path (≤28) so the Downloads tab reflects what's on disk — stale queue entries left by a killed process are cleaned up on boot. `deleteAll()` cancels active tasks and sweeps every entry under `Movies/Elsnime`.
+`listDownloads()` queries MediaStore (API 29+) or the direct path (≤28) so the Downloads tab reflects what's on disk — stale queue entries left by a killed process are cleaned up on boot (via `activeDownloads()`, resumed downloads are kept live instead of being marked interrupted). `deleteAll()` cancels active tasks, clears every persisted resume record, and sweeps every entry under `Movies/Elsnime`.
 
 ---
 
@@ -190,7 +208,7 @@ WebViews often keep buffering when hidden or screen-locked, burning cellular dat
 
 ### 4. Resume Playback
 
-Reopening an episode resumes from the saved position. `startWebPlayer` reads the episode's saved progress from history **before** `saveProgress(ep, 0, 0, true)` resets the row, then seeks on `loadedmetadata`. Resume is skipped for the first 15 seconds, within 10 seconds of the end, or past the 0.9 progress ratio the episode grid labels "Watched".
+Reopening an episode resumes from the saved position. `startWebPlayer` reads the episode's saved progress from history **before** `saveProgress(ep, 0, 0, true)` resets the row, then applies the position once it is reachable: the seek runs on `loadedmetadata` (retried on `durationchange`, since hls.js/MSE can report `Infinity` there) and only fires when the target sits inside the element's `seekable` range — `seekablechange`/`playing` retry until then. Seeking only into buffered territory matters for `.ts` downloads, whose VOD playlist duration is a placeholder that can exceed the real file: a seek past buffered data spins forever, and hls.js resets a seek applied before any data exists. Downloads work the same way: `playLocalFile` looks up the saved position keyed by the download's own anime id (`savedResumePositionFor`), and while `localPlayback` is set `saveProgress` writes under that id, so downloaded files land in watch history and resume across sessions — `.ts` progress saves the real buffered duration instead of the placeholder. `stopPlayback` force-saves the final position before clearing the local-playback state. Resume is skipped for the first 15 seconds, within 10 seconds of the end, or past the 0.9 progress ratio the episode grid labels "Watched".
 
 ### 5. CDN Headers & Error Mapping
 
@@ -224,6 +242,10 @@ Checks both mpv-android package IDs — `is.xyz.mpv` (current, renamed in v1.4.0
 2. mpv-android installed → **`launchMpvApp`**: an `ACTION_VIEW` intent with the stream URL and a `title` extra (`"<Anime> - Episode <n>"`) targeting `MPVActivity` — exactly ani-cli's `am start -a VIEW -d <url> -e title <title>`.
 3. Else, Termux `mpv` CLI exists (rooted) → **`launchMpv`**: execs it with `--no-stdin --tls-verify=no --force-media-title=`.
 4. Otherwise returns `{"error": "MPV is not installed…"}`.
+
+### Launching downloaded files (`Backend.playInMpvUrl`)
+
+The Open in MPV button also works while a download is playing. Instead of resolving a stream, `playInMpvUrl` hands mpv the loopback URL the file is already served from, with the container type as the intent's MIME. mpv-android's intent filter only accepts `http` URLs that carry a `video/*`/`audio/*` type or a recognized file extension; the extension-less token URL (`http://127.0.0.1:PORT/dl…`) matches only when the MIME is set, so `launchMpvApp` uses `setDataAndType` for local files (`video/mp4` / `video/mp2t`) and plain `setData` for streamed m3u8 URLs.
 
 ### Header Injection (`writeMpvFlags`)
 

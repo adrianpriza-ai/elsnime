@@ -83,7 +83,7 @@ jobs:
 
             > **Play Protect**: Google Play Protect may need to scan the app before installation. If the scan passes, you can install normally. If Play Protect reports a warning and you trust this release, review the warning and choose More details → Install anyway if that option is available.
 
-            **Minimum Android:** 5.0 (API 21)
+            **Minimum Android:** 6.0+ (API 23)
             **License:** GPL-3.0
           files: app/build/outputs/apk/release/elsnime-*.apk
           draft: false

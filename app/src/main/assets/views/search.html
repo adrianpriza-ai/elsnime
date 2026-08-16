@@ -1,0 +1,44 @@
+<!-- Search: search + popular -->
+<div class="view active" id="view-search">
+	<div id="search-bar-wrap">
+		<span class="search-icon">
+			<svg viewBox="0 0 24 24">
+				<circle cx="11" cy="11" r="8"></circle>
+				<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+			</svg>
+		</span>
+		<input
+			id="search-input"
+			type="text"
+			placeholder="Search anime..."
+			autocomplete="off"
+		/>
+		<button
+			id="search-clear"
+			type="button"
+			aria-label="Clear search"
+			title="Clear"
+			onclick="clearQueryFilter()"
+		>
+			<svg viewBox="0 0 24 24">
+				<line x1="18" y1="6" x2="6" y2="18"></line>
+				<line x1="6" y1="6" x2="18" y2="18"></line>
+			</svg>
+		</button>
+	</div>
+	<!-- Recent searches: persisted locally, re-tap to re-run a query -->
+	<div id="recent-searches" hidden></div>
+	<!-- Browse by genre: 2-column grid of genre cards (name + anime count),
+	     sorted by popularity. "Show all" expands demographics + themes. -->
+	<div id="browse-section" class="browse-section" hidden>
+		<div class="section-head">
+			<div class="section-title">Browse by genre</div>
+			<button type="button" class="see-all" id="browse-toggle" onclick="toggleGenreBrowse()">Show all</button>
+		</div>
+		<div class="genre-grid" id="genre-grid" aria-label="Anime genres"></div>
+	</div>
+	<!-- Active genre filter tag: visible while a genre card is selected -->
+	<div id="active-filter" class="active-filter" hidden></div>
+	<div id="trending-section" class="trending-grid"></div>
+	<div id="search-results"></div>
+</div>

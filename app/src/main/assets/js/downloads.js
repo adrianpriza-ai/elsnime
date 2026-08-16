@@ -1,6 +1,7 @@
 //  Downloads: native HLS downloader (Java) + queue UI
-//  Episodes are saved to Movies/Elsnime/<anime name>/ as MP4 (raw .ts when a
-//  stream can't be remuxed). Java queues the work on its own worker and pushes
+//  Episodes are saved to Movies/Elsnime/<anime name>/ as .ts (MPEG-TS is
+//  stored as-is; fMP4 streams as .mp4). Java queues the work on its own
+//  worker and pushes
 //  every state change here through window.__downloadEvent; this file owns the
 //  queue list, the episode-row download buttons and the player button.
 
@@ -77,6 +78,13 @@ function listDownloadsNative() {
     window.AndroidApi.listDownloads(id);
   });
 }
+function activeDownloadsNative() {
+  return new Promise(resolve => {
+    const id = String(++androidRequestId);
+    androidRequests.set(id, resolve);
+    window.AndroidApi.activeDownloads(id);
+  });
+}
 function clearDownloadsNative() {
   return new Promise(resolve => {
     const id = String(++androidRequestId);
@@ -84,10 +92,29 @@ function clearDownloadsNative() {
     window.AndroidApi.clearDownloads(id);
   });
 }
+function playDownloadNative(animeTitle, episode) {
+  return new Promise(resolve => {
+    const id = String(++androidRequestId);
+    androidRequests.set(id, resolve);
+    window.AndroidApi.playDownload(id, String(animeTitle), String(episode));
+  });
+}
+
+//  Play a completed download in the in-app player (mp4 plays directly; .ts
+//  goes through hls.js via the app's loopback file server).
+async function playDownloadByUid(uid) {
+  const d = S.downloads.find(x => x.uid === uid);
+  if (!d || !d.animeTitle || !d.episode) return;
+  if (!window.AndroidApi) { showToast('Downloads are available in the Android app', 'error'); return; }
+  const res = await playDownloadNative(d.animeTitle, d.episode).catch(() => null);
+  if (!res || res.error) { showToast((res && res.error) || 'Could not open this download', 'error'); return; }
+  if (window.playLocalFile) window.playLocalFile(res, d);
+  else showToast('Player is not available', 'error');
+}
 
 //  Start (or skip if already present/active)
 async function requestDownload(animeId, animeTitle, episode, type, opts = {}) {
-  const quality = S.settings.quality || '720';
+  const quality = downloadQuality(); // honors the separate download quality setting
   const file = episodeFileName(animeTitle, episode);
   const existing = findDownload(animeId, episode);
   if (S.downloadFiles.has(file + '.mp4') || S.downloadFiles.has(file + '.ts')) {
@@ -113,7 +140,7 @@ async function requestDownload(animeId, animeTitle, episode, type, opts = {}) {
     bytesDone: 0,
     error: '',
     fileName: '',
-    thumb: (al.coverImage && (al.coverImage.large || al.coverImage.extraLarge)) || (S.anime && S.anime.thumbnail) || '',
+    thumb: opts.thumb || (al.coverImage && (al.coverImage.large || al.coverImage.extraLarge)) || (S.anime && S.anime.thumbnail) || '',
     addedAt: Date.now(),
   };
   upsertDownload(entry);
@@ -171,7 +198,7 @@ async function downloadSeries() {
     await new Promise(r => setTimeout(r, 150));
   }
   showToast(started ? 'Queued ' + started + ' episode(s)' : 'Everything is already downloaded', started ? 'success' : 'info');
-  navigate('downloads');
+  openLibrarySection('downloads');
 }
 
 //  Row button (detail grid + Up next sidebar): start / cancel / delete
@@ -292,12 +319,37 @@ async function clearAllDownloads() {
   showToast('All downloads removed', 'success');
 }
 
-//  Native → JS progress events (raw JSON object, not a quoted string)
-window.__downloadEvent = ev => {
+//  Native → JS progress events (raw JSON object, not a quoted string). The
+//  boot reconciliation feeds the same handler (silently) to restore the state
+//  of downloads that were resumed after a process death.
+function applyDownloadEvent(ev, silent) {
   if (!ev || !ev.uid) return;
   const i = S.downloads.findIndex(d => d.uid === ev.uid);
-  if (i < 0) return;
-  const entry = S.downloads[i];
+  let entry;
+  if (i < 0) {
+    // Unknown uid (e.g. a resumed download whose queue entry was lost):
+    // rebuild it from the event so the download stays visible.
+    entry = {
+      uid: ev.uid,
+      animeId: String(ev.anime_id != null ? ev.anime_id : ''),
+      animeTitle: String(ev.anime_title || ''),
+      episode: String(ev.episode != null ? ev.episode : ''),
+      type: ev.type || 'sub',
+      quality: ev.quality || 'auto',
+      thumb: '',
+      addedAt: Date.now(),
+      state: ev.state,
+      progress: 0,
+      segmentsDone: 0,
+      segmentsTotal: 0,
+      bytesDone: 0,
+      error: '',
+      fileName: '',
+    };
+    S.downloads.unshift(entry);
+  } else {
+    entry = S.downloads[i];
+  }
   entry.state = ev.state;
   entry.progress = ev.progress != null ? ev.progress : entry.progress;
   entry.segmentsDone = ev.segmentsDone || 0;
@@ -306,15 +358,21 @@ window.__downloadEvent = ev => {
   entry.error = ev.error || '';
   if (ev.fileName) entry.fileName = ev.fileName;
   if (ev.state === 'done' || ev.state === 'exists') S.downloadFiles.add(ev.fileName);
-  if (ev.state === 'cancelled') S.downloads.splice(i, 1);
+  if (ev.state === 'cancelled') {
+    const j = S.downloads.findIndex(x => x.uid === ev.uid);
+    if (j >= 0) S.downloads.splice(j, 1);
+  }
   saveDownloadsState();
   renderDownloads();
   refreshEpisodeDownloadButtons();
   refreshPlayerDownloadButton();
   refreshDownloadAllButton();
-  if (ev.state === 'done') showToast('Downloaded: ' + ev.fileName, 'success');
-  else if (ev.state === 'error') showToast('Download failed: ' + (ev.error || 'unknown error'), 'error');
-};
+  if (!silent) {
+    if (ev.state === 'done') showToast('Downloaded: ' + ev.fileName, 'success');
+    else if (ev.state === 'error') showToast('Download failed: ' + (ev.error || 'unknown error'), 'error');
+  }
+}
+window.__downloadEvent = ev => applyDownloadEvent(ev, false);
 
 //  Boot: restore the queue and reconcile with what's actually on disk
 async function initDownloads() {
@@ -326,11 +384,29 @@ async function initDownloads() {
       const files = (res && res.files) || [];
       files.forEach(f => S.downloadFiles.add(f.fileName));
       const present = new Set(files.map(f => f.fileName));
+      // Downloads that survived a process death are resumed natively on the
+      // next launch; fetch their live state so the queue doesn't mark them
+      // dead (events emitted before the page loaded are lost).
+      let activeEvents = [];
+      try {
+        const act = await activeDownloadsNative();
+        activeEvents = (act && act.downloads) || [];
+      } catch (_) {}
+      const activeUids = new Set(activeEvents.map(ev => ev.uid));
+      activeEvents.forEach(ev => applyDownloadEvent(ev, true));
       S.downloads.forEach(d => {
+        if (activeUids.has(d.uid)) return; // still downloading — native events keep it fresh
         if (DOWNLOAD_ACTIVE.includes(d.state) || d.state === 'cancelling' || d.state === 'deleting') {
-          // The process died mid-download (no worker is running anymore).
-          d.state = 'error';
-          d.error = 'Interrupted — tap Retry';
+          // Not being resumed: the partial file or record is gone. It may
+          // still have finished before the page loaded — check the disk.
+          const file = episodeFileName(d.animeTitle, d.episode);
+          if (S.downloadFiles.has(file + '.mp4') || S.downloadFiles.has(file + '.ts')) {
+            d.state = 'done';
+            d.fileName = S.downloadFiles.has(file + '.mp4') ? file + '.mp4' : file + '.ts';
+          } else {
+            d.state = 'error';
+            d.error = 'Interrupted — tap Retry';
+          }
         } else if ((d.state === 'done' || d.state === 'exists') && d.fileName && !present.has(d.fileName)) {
           d.state = 'removed';
         }
@@ -342,6 +418,149 @@ async function initDownloads() {
   refreshEpisodeDownloadButtons();
   refreshPlayerDownloadButton();
   refreshDownloadAllButton();
+}
+
+//  Series grouping (persisted expanded state so re-renders keep the UI open)
+S.expandedSeries = new Set();
+//  Registry of series groups (anime titles can contain quotes, so picker
+//  handlers reference a generated id instead of interpolating the title).
+S.seriesRegistry = {};
+let seriesGroupId = 0;
+
+//  Episode picker state (series whose episodes the user is choosing)
+let epPickerCtx = null;
+
+function toggleSeriesExpanded(head) {
+  const series = head.closest('.dl-series');
+  if (!series) return;
+  const animeId = series.dataset.anime;
+  series.classList.toggle('open');
+  if (S.expandedSeries.has(animeId)) S.expandedSeries.delete(animeId);
+  else S.expandedSeries.add(animeId);
+}
+
+function seriesGroupHTML(g) {
+  const activeCount = g.entries.filter(d => DOWNLOAD_ACTIVE.includes(d.state)).length;
+  const subBits = [];
+  if (activeCount) subBits.push(activeCount + ' downloading');
+  if (g.entries.length) subBits.push(g.entries.length + ' episode' + (g.entries.length === 1 ? '' : 's') + ' here');
+  const thumb = g.thumb
+    ? '<img class="dl-series-thumb" src="' + dlEsc(g.thumb) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\'">'
+    : '<div class="dl-series-thumb" style="background:var(--surface-2)"></div>';
+  const open = S.expandedSeries.has(g.animeId) ? ' open' : '';
+  const sid = 'dlg' + (++seriesGroupId);
+  S.seriesRegistry[sid] = g;
+  return `<div class="dl-series${open}" data-anime="${dlEsc(g.animeId)}">
+  <div class="dl-series-head" onclick="toggleSeriesExpanded(this)">
+    ${thumb}
+    <div class="dl-series-meta">
+      <div class="dl-series-title">${dlEsc(g.animeTitle)}</div>
+      <div class="dl-series-sub">${subBits.join(' · ')}</div>
+    </div>
+    <div class="dl-series-actions">
+      <button class="dl-pick-btn" onclick="event.stopPropagation();openEpPicker('${sid}')">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Pick episodes
+      </button>
+    </div>
+  </div>
+  <div class="dl-series-eps">${g.entries.map(downloadItemHTML).join('')}</div>
+  </div>`;
+}
+
+//  Render the Downloads section: queue grouped by series
+function renderDownloads() {
+  const list = document.getElementById('downloads-list');
+  if (!list) return;
+  if (!S.downloads.length) {
+    list.innerHTML = '<div class="downloads-empty">'
+      + '<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>'
+      + '<div>No downloads yet.</div>'
+      + '<p>Open a series and tap <b>Pick episodes</b> here, or use the download button on an episode.</p>'
+      + '</div>';
+    return;
+  }
+  // Group the flat queue by series (order of first appearance), keeping the
+  // per-series episode rows underneath the series header.
+  const groups = [];
+  const byAnime = new Map();
+  S.downloads.forEach(d => {
+    let g = byAnime.get(d.animeId);
+    if (!g) {
+      g = { animeId: d.animeId, animeTitle: d.animeTitle, type: d.type || 'sub', thumb: d.thumb || '', entries: [] };
+      byAnime.set(d.animeId, g);
+      groups.push(g);
+    }
+    g.entries.push(d);
+  });
+  list.innerHTML = groups.map(seriesGroupHTML).join('');
+}
+
+//  Episode picker (series → episodes): fetch the series' episode list and let
+//  the user tick which episodes to queue, mirroring the detail page's rows.
+async function openEpPicker(sid) {
+  const g = S.seriesRegistry[sid];
+  if (!g) return;
+  const titleEl = document.getElementById('ep-picker-title');
+  if (titleEl) titleEl.textContent = g.animeTitle || 'Series';
+  const list = document.getElementById('ep-picker-list');
+  list.innerHTML = '<div class="ep-picker-loading">Loading episodes…</div>';
+  document.getElementById('ep-picker').hidden = false;
+  epPickerCtx = { animeId: g.animeId, animeTitle: g.animeTitle, type: g.type || 'sub', thumb: g.thumb || '' };
+  const data = await api.get(`/api/episodes?id=${encodeURIComponent(g.animeId)}&type=${encodeURIComponent(g.type || 'sub')}`).catch(() => null);
+  const eps = (data && Array.isArray(data.episodes)) ? data.episodes : [];
+  if (!eps.length) {
+    list.innerHTML = '<div class="ep-picker-error">Could not load this series\' episodes. Open the series page and use its episode list instead.</div>';
+    return;
+  }
+  epPickerCtx.episodes = eps;
+  renderEpPickerList();
+}
+
+function renderEpPickerList() {
+  const ctx = epPickerCtx;
+  if (!ctx || !ctx.episodes) return;
+  const list = document.getElementById('ep-picker-list');
+  list.innerHTML = ctx.episodes.map(ep => {
+    const file = episodeFileName(ctx.animeTitle, ep);
+    const onDevice = S.downloadFiles.has(file + '.mp4') || S.downloadFiles.has(file + '.ts');
+    const dl = findDownload(ctx.animeId, ep);
+    const active = dl && DOWNLOAD_ACTIVE.includes(dl.state);
+    const done = onDevice || (dl && (dl.state === 'done' || dl.state === 'exists'));
+    const stateTag = done
+      ? '<span class="ep-picker-state on-device">On device</span>'
+      : (active ? '<span class="ep-picker-state downloading">Downloading</span>' : '');
+    return `<label class="ep-picker-item${done ? ' is-done' : ''}">
+      <input type="checkbox" data-ep="${dlEsc(ep)}" ${done || active ? 'disabled' : 'checked'}>
+      <span class="ep-picker-ep"><span class="ep-picker-ep-name">Episode ${dlEsc(ep)}</span></span>
+      ${stateTag}
+    </label>`;
+  }).join('');
+}
+
+function closeEpPicker() {
+  document.getElementById('ep-picker').hidden = true;
+  epPickerCtx = null;
+}
+
+//  Queue every checked episode of the picker series
+async function downloadPickedEpisodes() {
+  const ctx = epPickerCtx;
+  if (!ctx) return;
+  const picked = [...document.querySelectorAll('#ep-picker-list input[type=checkbox]:checked')].map(c => c.dataset.ep);
+  closeEpPicker();
+  if (!picked.length) { showToast('No episodes selected', 'info'); return; }
+  let started = 0;
+  for (const ep of picked) {
+    const file = episodeFileName(ctx.animeTitle, ep);
+    if (S.downloadFiles.has(file + '.mp4') || S.downloadFiles.has(file + '.ts')) continue;
+    const dl = findDownload(ctx.animeId, ep);
+    if (dl && DOWNLOAD_ACTIVE.includes(dl.state)) continue;
+    await requestDownload(ctx.animeId, ctx.animeTitle, ep, ctx.type, { silent: true, thumb: ctx.thumb });
+    started++;
+  }
+  showToast(started ? 'Queued ' + started + ' episode(s)' : 'Selected episodes are already downloaded', started ? 'success' : 'info');
+  renderDownloads();
 }
 
 //  Render the Downloads tab
@@ -377,8 +596,8 @@ function downloadMeta(d) {
     return pct + '% · ' + fmtBytes(d.bytesDone) + ' · ' + d.segmentsDone + '/' + d.segmentsTotal + ' segments';
   }
   if (d.state === 'downloading') return fmtBytes(d.bytesDone);
-  if (d.state === 'resolving') return 'Fetching stream…';
   if (d.state === 'remuxing') return 'Combining ' + d.segmentsTotal + ' segments…';
+  if (d.state === 'resolving') return 'Fetching stream…';
   if (d.state === 'queued') return 'Waiting for the downloader…';
   if (d.state === 'cancelling') return 'Stopping…';
   if (d.state === 'deleting') return 'Deleting…';
@@ -409,7 +628,8 @@ function downloadActionsHTML(d) {
       + '<button class="dl-btn danger" onclick="removeEntryByUid(\'' + d.uid + '\')">Remove</button>';
   }
   if (d.state === 'done' || d.state === 'exists') {
-    return '<button class="dl-btn danger" onclick="deleteDownloadByUid(\'' + d.uid + '\')">Delete</button>';
+    return '<button class="dl-btn" onclick="playDownloadByUid(\'' + d.uid + '\')">Play</button>'
+      + '<button class="dl-btn danger" onclick="deleteDownloadByUid(\'' + d.uid + '\')">Delete</button>';
   }
   if (d.state === 'removed') {
     return '<button class="dl-btn" onclick="removeEntryByUid(\'' + d.uid + '\')">Dismiss</button>';
@@ -428,7 +648,7 @@ function downloadItemHTML(d) {
     + '<div class="dl-main">'
     + '<div class="dl-top"><div class="dl-title">' + dlEsc(d.animeTitle) + '</div>'
     + '<span class="dl-state state-' + d.state + '">' + (DOWNLOAD_STATE_LABELS[d.state] || d.state) + '</span></div>'
-    + '<div class="dl-sub">Episode ' + dlEsc(d.episode) + ' · ' + dlEsc(d.quality) + (d.fileName ? ' · ' + dlEsc(d.fileName) : '') + '</div>'
+    + '<div class="dl-sub">Episode ' + dlEsc(d.episode) + ' · ' + dlEsc(d.quality === 'auto' ? 'Best' : d.quality) + (d.fileName ? ' · ' + dlEsc(d.fileName) : '') + '</div>'
     + downloadProgressHTML(d)
     + '<div class="dl-meta">' + downloadMeta(d) + '</div>'
     + '</div>'
@@ -436,19 +656,7 @@ function downloadItemHTML(d) {
     + '</div>';
 }
 
-function renderDownloads() {
-  const list = document.getElementById('downloads-list');
-  if (!list) return;
-  if (!S.downloads.length) {
-    list.innerHTML = '<div class="downloads-empty">'
-      + '<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>'
-      + '<div>No downloads yet.</div>'
-      + '<p>Tap the download icon on an episode, or use <b>Download All</b> on a series page.</p>'
-      + '</div>';
-    return;
-  }
-  list.innerHTML = S.downloads.map(downloadItemHTML).join('');
-}
+
 
 //  Episode-row + player-button state
 function episodeDownloadState(animeId, animeTitle, ep) {
@@ -477,7 +685,7 @@ function refreshPlayerDownloadButton() {
   const btn = document.getElementById('btn-download-ep');
   const label = document.getElementById('btn-download-ep-label');
   if (!btn || !label) return;
-  if (!S.anime || !S.currentEp) { btn.style.display = 'none'; return; }
+  if (localPlayback || !S.anime || !S.currentEp || !S.currentEp.ep) { btn.style.display = 'none'; return; }
   btn.style.display = '';
   const state = episodeDownloadState(S.anime.id, animeDisplayTitle(), S.currentEp.ep);
   const done = state === 'done';

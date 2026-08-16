@@ -1,7 +1,10 @@
 //  Search: input wiring, genre chips, results rendering 
 let searchTimer;
 let searchSeq = 0; // bumped on every new search/clear so stale responses are ignored
-const searchInput = document.getElementById('search-input');
+// Bound in initSearch() once the views/*.html partials are injected (the UI
+// is split out of ui.html and loaded at startup, so this element doesn't
+// exist at parse time).
+let searchInput = null;
 
 // Show/hide the in-field × button based on whether the box has text.
 function updateSearchClear() {
@@ -100,32 +103,6 @@ function updateRecentVisibility() {
   el.hidden = hidden;
 }
 
-searchInput.addEventListener('input', e => {
-  clearTimeout(searchTimer);
-  updateSearchClear();
-  updateRecentVisibility();
-  const q = e.target.value.trim();
-  document.querySelectorAll('.chip.active').forEach(chip => chip.classList.remove('active'));
-  if (!q) {
-    resetSearchToTrending();
-    return;
-  }
-  renderActiveFilter();
-  document.getElementById('trending-section').style.display = 'none';
-  searchTimer = setTimeout(() => doSearch(q), 400);
-});
-
-searchInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    clearTimeout(searchTimer);
-    const q = e.target.value.trim();
-    if (q) {
-      document.getElementById('trending-section').style.display = 'none';
-      doSearch(q);
-    }
-  }
-});
-
 // The currently-selected genre chip, if any (used across files so the empty
 // search box doesn't lose the active genre filter on navigation/refresh).
 function activeGenreChip() {
@@ -221,17 +198,83 @@ function bindGenreChip(chip) {
   });
 }
 
-async function loadTags(force = false) {
-  const wrap = document.getElementById('genre-chips');
-  if (!wrap || (!force && wrap.dataset.loaded)) return;
-  const tags = await api.get('/api/tags').catch(() => []);
-  if (!Array.isArray(tags) || !tags.length) return;
-  wrap.dataset.loaded = 'true';
-  wrap.innerHTML = tags.slice(0, 18).map(tag => `<button class="chip" data-genre="${escapeGenreName(tag.name)}">${escapeGenreName(tag.name)}</button>`).join('');
-  wrap.querySelectorAll('.chip').forEach(bindGenreChip);
+//  Browse by genre: a 2-column grid of genre cards (name + anime count)
+//  sorted by popularity, replacing the old sideways chip rail. The default
+//  view is capped at GENRE_PREVIEW_COUNT cards; "Show all" expands to the
+//  full grouped list (Genres / Demographics / Themes).
+const GENRE_CATEGORIES = ['genre', 'demographic', 'theme'];
+const GENRE_CATEGORY_LABELS = { genre: 'Genres', demographic: 'Demographics', theme: 'Themes' };
+const GENRE_PREVIEW_COUNT = 8;
+// MAL genre ids that are inherently adult (Hentai, Erotica). Their cards are
+// hidden from the browse grid while "Show 18+ content" is off, so adult
+// genres aren't even discoverable as browse options.
+const ADULT_GENRE_IDS = new Set([12, 49]);
+let genreTags = [];
+let genreBrowseExpanded = false;
+
+function genreCardHTML(tag) {
+  const count = tag.count > 0 ? `<span class="genre-count">${tag.count}</span>` : '';
+  return `<button type="button" class="chip genre-card" data-genre="${escapeGenreName(tag.name)}">` +
+    `<span class="genre-name">${escapeGenreName(tag.name)}</span>${count}</button>`;
 }
 
-document.querySelectorAll('.chip').forEach(bindGenreChip);
+function renderGenreGrid() {
+  const grid = document.getElementById('genre-grid');
+  if (!grid) return;
+  // Keep the active filter across re-renders (the toggle rebuilds the grid).
+  const prevActive = activeGenreChip() ? activeGenreChip().dataset.genre : null;
+  const tags = showAdultContent()
+    ? genreTags
+    : genreTags.filter(t => !ADULT_GENRE_IDS.has(Number(t.id)));
+  const byCat = {};
+  GENRE_CATEGORIES.forEach(cat => (byCat[cat] = []));
+  tags.forEach(tag => {
+    const cat = GENRE_CATEGORIES.includes(tag.category) ? tag.category : 'genre';
+    byCat[cat].push(tag);
+  });
+  GENRE_CATEGORIES.forEach(cat => byCat[cat].sort((a, b) => (b.count || 0) - (a.count || 0)));
+  // No point in a "Show all" toggle when there's nothing beyond the preview.
+  const toggle = document.getElementById('browse-toggle');
+  if (toggle) {
+    toggle.hidden = tags.length <= GENRE_PREVIEW_COUNT;
+    toggle.textContent = genreBrowseExpanded ? 'Show less' : 'Show all';
+  }
+  let html;
+  if (genreBrowseExpanded) {
+    html = GENRE_CATEGORIES
+      .filter(cat => byCat[cat].length)
+      .map(cat =>
+        `<div class="genre-group-label">${GENRE_CATEGORY_LABELS[cat]}</div>` + byCat[cat].map(genreCardHTML).join('')
+      )
+      .join('');
+  } else {
+    html = byCat.genre.slice(0, GENRE_PREVIEW_COUNT).map(genreCardHTML).join('');
+  }
+  grid.innerHTML = html;
+  grid.querySelectorAll('.chip').forEach(chip => {
+    bindGenreChip(chip);
+    if (chip.dataset.genre === prevActive) chip.classList.add('active');
+  });
+}
+
+// "Show all" toggles between just the main genres and the full grouped list
+// (genres + demographics + themes).
+function toggleGenreBrowse() {
+  genreBrowseExpanded = !genreBrowseExpanded;
+  renderGenreGrid();
+}
+
+async function loadTags(force = false) {
+  const grid = document.getElementById('genre-grid');
+  if (!grid || (!force && grid.dataset.loaded)) return;
+  const tags = await api.get('/api/tags').catch(() => []);
+  if (!Array.isArray(tags) || !tags.length) return;
+  genreTags = tags;
+  grid.dataset.loaded = 'true';
+  const section = document.getElementById('browse-section');
+  if (section) section.hidden = false;
+  renderGenreGrid();
+}
 
 async function doSearch(q, tag = '') {
   if (!q && !tag) return;
@@ -252,21 +295,61 @@ async function doSearch(q, tag = '') {
   // Only record queries that actually matched something — a zero-result or
   // failed query isn't a useful shortcut (and keeps the list cache-friendly).
   if (q && Array.isArray(results) && results.length) addRecentSearch(q);
-  renderResults(Array.isArray(results) ? results : [], tag ? `Tag: ${escapeGenreName(tag)}` : 'Results', tag ? '' : q);
+  renderResults(Array.isArray(results) ? results : [], tag ? `Tag: ${escapeGenreName(tag)}` : 'Results', tag ? '' : q, !!tag);
 }
 
-function renderResults(results, heading = 'Results', highlight = '') {
+function renderResults(results, heading = 'Results', highlight = '', isGenre = false) {
   const el = document.getElementById('search-results');
-  if (!results.length) {
+  const visible = filterAdultItems(results);
+  if (!visible.length) {
+    // Empty is empty as far as the user can tell: filtered mature results
+    // (Mature content is off by default) render the exact same plain no-match
+    // state as a real empty result, so nothing hints that a filter exists.
+    // Only a truly empty genre result (source failure) gets the outage hint.
+    const hint = isGenre && !results.length
+      ? 'No titles for this genre right now — its catalog source (MAL) is temporarily unreachable. Try again in a moment, or pick another genre below.'
+      : 'Try a different spelling, or browse by genre below.';
     el.innerHTML =
       '<div class="empty"><div class="empty-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></div>' +
       'No results found.' +
-      '<div class="empty-hint">Try a different spelling, or browse by genre below.</div>' +
+      `<div class="empty-hint">${hint}</div>` +
       '<button type="button" class="empty-action" onclick="clearAllFilters()">Clear search</button></div>';
     return;
   }
-  el.innerHTML = animeGridHTML(results, `${heading} (${results.length})`, highlight);
+  el.innerHTML = animeGridHTML(visible, `${heading} (${visible.length})`, highlight);
 }
 
-// Show the persisted recent searches row on first load.
-renderRecentSearches();
+// Wire the search box and chip rows. Runs from boot() once the UI partials
+// are injected, so the elements are guaranteed to exist.
+window.__initSearch = function initSearch() {
+  searchInput = document.getElementById('search-input');
+  searchInput.addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    updateSearchClear();
+    updateRecentVisibility();
+    const q = e.target.value.trim();
+    document.querySelectorAll('.chip.active').forEach(chip => chip.classList.remove('active'));
+    if (!q) {
+      resetSearchToTrending();
+      return;
+    }
+    renderActiveFilter();
+    document.getElementById('trending-section').style.display = 'none';
+    searchTimer = setTimeout(() => doSearch(q), 400);
+  });
+
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      clearTimeout(searchTimer);
+      const q = e.target.value.trim();
+      if (q) {
+        document.getElementById('trending-section').style.display = 'none';
+        doSearch(q);
+      }
+    }
+  });
+
+  document.querySelectorAll('.chip').forEach(bindGenreChip);
+  // Show the persisted recent searches row on first load.
+  renderRecentSearches();
+};

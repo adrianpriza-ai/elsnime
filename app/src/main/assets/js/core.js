@@ -86,6 +86,9 @@ const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
 //  Navigation 
 const viewStack = [];
+// Active You-page destination: the hub (default, History shown inline) or one
+// of the sub-pages (downloads | watchlater | history | settings)
+let librarySection = 'hub';
 
 function showView(name) {
   const prevActive = document.querySelector('.view.active');
@@ -98,14 +101,52 @@ function showView(name) {
   if (navBtn) navBtn.classList.add('active');
   // Leaving the player tears the stream down so it stops downloading data.
   if (prevName === 'player' && name !== 'player') stopPlayback();
-  if (name === 'history') loadHistory();
-  if (name === 'downloads') renderDownloads();
+  if (name === 'library') renderLibrarySection(librarySection);
   if (name === 'home') loadHome();
   if (name === 'search') {
     renderRecentSearches();
     if (!document.getElementById('search-input').value.trim() && !activeGenreChip()) loadTrending();
   }
-  if (name === 'settings') refreshPillSliders();
+}
+
+// Switch the active You-page destination (hub or a sub-page). Navigates to
+// the You view when called from elsewhere (Home's See all, the bottom nav,
+// keyboard shortcuts). When already on the You view, render directly;
+// otherwise navigate (whose showView('library') renders the section) so the
+// section never fires twice (e.g. two concurrent loadHistory fetches).
+function openLibrarySection(name) {
+  librarySection = name;
+  if (document.querySelector('.view.active') === document.getElementById('view-library')) {
+    renderLibrarySection(name);
+  } else {
+    navigate('library');
+  }
+}
+
+// Render the You page: the hub (History inline, 1-1 copy of Home's Continue
+// Watching, plus shortcut rows) or one of the sub-pages (Downloads / Saved
+// for later / History / Settings), which open with a back arrow. Each
+// destination opens at the top, like YouTube's tab navigations.
+function renderLibrarySection(name) {
+  const main = document.getElementById('main');
+  if (main) main.scrollTop = 0;
+  const hub = document.getElementById('you-hub');
+  if (hub) hub.hidden = name !== 'hub';
+  ['downloads', 'watchlater', 'history', 'settings'].forEach(s => {
+    const page = document.getElementById('you-page-' + s);
+    if (page) page.hidden = s !== name;
+  });
+  if (name === 'hub') loadContinueWatching(document.getElementById('you-history-section'));
+  else if (name === 'downloads') renderDownloads();
+  else if (name === 'watchlater') renderWatchLater();
+  else if (name === 'history') loadHistory();
+  else if (name === 'settings') refreshPillSliders();
+}
+
+// Back arrow on a You sub-page: return to the hub (History + shortcuts).
+function youBack() {
+  librarySection = 'hub';
+  renderLibrarySection('hub');
 }
 
 // Bottom-nav tabs: jump to a root view and reset the back stack
@@ -181,6 +222,24 @@ function playInMpvNative(animeId, episode, type) {
     .catch(() => ({ error: 'Failed to launch MPV' }));
 }
 
+// Launch mpv with a direct URL — used for downloaded files, which the app
+// already serves over the loopback file server, so no stream scraping is
+// involved. The referer/UA flags are irrelevant for the local server. mime is
+// the container type (video/mp4 or video/mp2t): mpv-android's intent filter
+// requires a video/* type when the URL has no file extension.
+function playInMpvUrlNative(url, title, mime) {
+  if (window.AndroidApi) {
+    return new Promise(resolve => {
+      const id = String(++androidRequestId);
+      androidRequests.set(id, resolve);
+      window.AndroidApi.playInMpvUrl(id, url, title, mime || 'video/mp4');
+    });
+  }
+  return api.post('/api/mpv', { url, referer: '', user_agent: '' })
+    .then(res => ({ ...(res || {}) }))
+    .catch(() => ({ error: 'Failed to launch MPV' }));
+}
+
 // Detect mpv on the device: CLI binary (Termux/root) and/or the mpv-android app
 function getMpvStatus() {
   if (window.AndroidApi) {
@@ -234,7 +293,20 @@ function animeCardHTML(r, highlight) {
 
 function animeGridHTML(items, title, highlight) {
   return `<div class="section-title">${title}</div><div class="anime-grid">` +
-    items.map(r => animeCardHTML(r, highlight)).join('') + '</div>';
+    filterAdultItems(items).map(r => animeCardHTML(r, highlight)).join('') + '</div>';
+}
+
+// "Mature content" gate: off by default (Settings > Content). When off,
+// results carrying an AniList isAdult flag are dropped from every grid
+// (home, search, genre browse). The flag travels on the payload's anilist
+// object — added by the scraper to all AniList/Jikan result shapes.
+function showAdultContent() {
+  return (S.settings.show_adult || DEFAULT_SETTINGS.show_adult) === 'on';
+}
+
+function filterAdultItems(items) {
+  const list = items || [];
+  return showAdultContent() ? list : list.filter(r => !(r.anilist && r.anilist.isAdult));
 }
 
 function skeletonGridHTML(count) {
@@ -248,10 +320,29 @@ const DEFAULT_SETTINGS = {
   player: 'web',
   sub_lang: 'sub',
   aniskip: 'on',
+  show_adult: 'off', // mature content hidden unless the user opts in
   performance_mode: 'auto',
   hw_accel: false,
-  quality: '720', // Default playback quality ('auto' lets hls.js pick by bandwidth)
+  quality: '480', // Default playback quality ('auto' lets hls.js pick by bandwidth)
+  separate_quality: 'off', // 'on' → independent stream/download quality settings
+  stream_quality: '480',
+  download_quality: '480',
 };
+
+// Effective quality for streaming (hls.js starting level). With "Separate
+// stream & download quality" off, both stream and download share 'quality'.
+function streamQuality() {
+  return (S.settings.separate_quality === 'on' ? S.settings.stream_quality : S.settings.quality)
+    || DEFAULT_SETTINGS.stream_quality;
+}
+
+// Effective quality for downloads (passed to AndroidApi.startDownload).
+// 'auto' means "best available rendition", which the download picker labels
+// "Best".
+function downloadQuality() {
+  return (S.settings.separate_quality === 'on' ? S.settings.download_quality : S.settings.quality)
+    || DEFAULT_SETTINGS.download_quality;
+}
 
 async function loadSettings() {
   // /api/settings (SQLite on Android) is authoritative — no localStorage layer.
@@ -266,9 +357,14 @@ async function loadSettings() {
   setPillValue('pill-player', S.settings.player   || DEFAULT_SETTINGS.player);
   setPillValue('pill-lang',   S.settings.sub_lang || DEFAULT_SETTINGS.sub_lang);
   setPillValue('pill-aniskip', S.settings.aniskip || DEFAULT_SETTINGS.aniskip);
+  setPillValue('pill-adult',  S.settings.show_adult || DEFAULT_SETTINGS.show_adult);
   setPillValue('pill-quality', S.settings.quality || DEFAULT_SETTINGS.quality);
+  setPillValue('pill-sep-quality',    S.settings.separate_quality || DEFAULT_SETTINGS.separate_quality);
+  setPillValue('pill-stream-quality', S.settings.stream_quality || DEFAULT_SETTINGS.stream_quality);
+  setPillValue('pill-download-quality', S.settings.download_quality || DEFAULT_SETTINGS.download_quality);
 
   applyTheme(S.settings.theme || DEFAULT_SETTINGS.theme);
+  syncQualityRows();
   initPillSliders();
 }
 
@@ -344,6 +440,7 @@ function selectPillOption(btn) {
   movePillHighlight(highlight, btn);
   if (setting === 'theme') applyTheme(btn.dataset.value);
   saveSetting(setting, btn.dataset.value);
+  syncQualityRows(); // show/hide Default vs Stream/Download quality rows
 }
 
 function movePillHighlight(highlight, btn) {
@@ -370,6 +467,22 @@ function refreshPillSliders() {
   });
 }
 
+// The "Separate stream & download quality" toggle swaps the single Default
+// Quality row for the independent Stream/Download Quality rows.
+function syncQualityRows() {
+  const separate = (S.settings.separate_quality || DEFAULT_SETTINGS.separate_quality) === 'on';
+  const map = [
+    ['row-default-quality', separate],
+    ['row-stream-quality', !separate],
+    ['row-download-quality', !separate],
+  ];
+  map.forEach(([id, hide]) => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = hide;
+  });
+  refreshPillSliders(); // unhidden rows need their highlight repositioned
+}
+
 async function resetSettings() {
   const ok = await showConfirm({
     title: 'Reset settings?',
@@ -387,8 +500,13 @@ async function resetSettings() {
   setPillValue('pill-player', DEFAULT_SETTINGS.player);
   setPillValue('pill-lang',   DEFAULT_SETTINGS.sub_lang);
   setPillValue('pill-aniskip', DEFAULT_SETTINGS.aniskip);
+  setPillValue('pill-adult',  DEFAULT_SETTINGS.show_adult);
   setPillValue('pill-quality', DEFAULT_SETTINGS.quality);
+  setPillValue('pill-sep-quality',    DEFAULT_SETTINGS.separate_quality);
+  setPillValue('pill-stream-quality', DEFAULT_SETTINGS.stream_quality);
+  setPillValue('pill-download-quality', DEFAULT_SETTINGS.download_quality);
   applyTheme(DEFAULT_SETTINGS.theme);
+  syncQualityRows();
   refreshPillSliders();
   showToast('Settings reset', 'success');
 }

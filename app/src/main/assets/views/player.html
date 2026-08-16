@@ -1,0 +1,128 @@
+<!-- Player -->
+<div class="view" id="view-player">
+	<button class="back-btn" onclick="popView()">
+		<svg
+			width="18"
+			height="18"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="2"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+		>
+			<polyline points="15 18 9 12 15 6"></polyline>
+		</svg>
+		Back to series
+	</button>
+
+	<div class="watch-cols">
+		<div class="watch-main">
+			<div id="video-wrap">
+				<!-- Controls come from Plyr (controls option) — no native controls
+				     attribute so the WebView can't draw a second control bar. -->
+				<video id="video" playsinline></video>
+
+				<!-- AniSkip: Crunchyroll-style skip button shown while the
+				     opening/recap/ending plays (populated from player.js) -->
+				<button type="button" id="skip-btn" class="skip-btn" hidden>
+					<svg viewBox="0 0 24 24">
+						<polygon points="5 4 15 12 5 20 5 4"></polygon>
+						<polygon points="13 4 23 12 13 20 13 4"></polygon>
+					</svg>
+					<span id="skip-btn-label">Skip</span>
+				</button>
+			</div>
+
+			<div id="player-title">Title <span id="player-ep-label"></span></div>
+
+			<div class="watch-channel">
+				<img
+					id="player-avatar"
+					class="watch-avatar"
+					src
+					alt
+					onerror="this.style.display = 'none'"
+				/>
+				<div class="watch-channel-meta">
+					<div class="watch-channel-name" id="watch-channel-name"></div>
+					<div class="watch-channel-sub" id="watch-channel-sub"></div>
+				</div>
+				<div class="seg-ctrl seg-ctrl--sm" id="player-seg-ctrl">
+					<button
+						class="seg-btn active"
+						data-lang="sub"
+						onclick="switchTranslation('sub', this)"
+					>
+						SUB
+					</button>
+					<button
+						class="seg-btn"
+						data-lang="dub"
+						onclick="switchTranslation('dub', this)"
+					>
+						DUB
+					</button>
+				</div>
+			</div>
+
+			<div id="player-actions">
+				<button class="action-btn" id="btn-download-ep" onclick="downloadCurrentEpisode()">
+					<span class="btn-icon">
+						<svg viewBox="0 0 24 24">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+							<polyline points="7 10 12 15 17 10"></polyline>
+							<line x1="12" y1="15" x2="12" y2="3"></line>
+						</svg>
+					</span>
+					<span id="btn-download-ep-label">Download</span>
+				</button>
+				<button class="action-btn" onclick="markWatched()">
+					<svg viewBox="0 0 24 24">
+						<polyline points="20 6 9 17 4 12"></polyline>
+					</svg>
+					Mark Watched
+				</button>
+				<button class="action-btn" id="btn-mpv" onclick="playInMpv()">
+					<svg viewBox="0 0 24 24">
+						<polygon points="5 3 19 12 5 21 5 3"></polygon>
+					</svg>
+					Open in MPV
+				</button>
+				<span class="yt-actions-spacer"></span>
+				<button
+					class="action-btn icon-only"
+					id="btn-prev"
+					onclick="playAdjacentEp(-1)"
+					title="Previous episode"
+					aria-label="Previous episode"
+				>
+					<svg viewBox="0 0 24 24">
+						<polyline points="15 18 9 12 15 6"></polyline>
+					</svg>
+				</button>
+				<button
+					class="action-btn icon-only"
+					id="btn-next"
+					onclick="playAdjacentEp(1)"
+					title="Next episode"
+					aria-label="Next episode"
+				>
+					<svg viewBox="0 0 24 24">
+						<polyline points="9 18 15 12 9 6"></polyline>
+					</svg>
+				</button>
+			</div>
+
+			<div id="player-error"></div>
+		</div>
+
+		<div class="watch-side">
+			<div class="upnext-head">
+				<span class="upnext-label">Up next</span>
+				<span class="upnext-count" id="upnext-count"></span>
+			</div>
+			<div id="eps-list"></div>
+		</div>
+	</div>
+</div>

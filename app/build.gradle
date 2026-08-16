@@ -8,7 +8,7 @@ android {
         minSdk = 23
         targetSdk = 35
         versionCode = 1
-        versionName = '0.1-Sierra'
+        versionName = '0.2-Alfa'
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -67,4 +67,13 @@ dependencies {
     // implementation + libs (no Google Play services dependency).
     implementation 'org.chromium.net:cronet-api:143.7445.0'
     implementation 'org.chromium.net:cronet-embedded:143.7445.0'
+
+    // Media3 muxer: the pure-Java MP4 writer used for the .ts → .mp4 remux.
+    // The system MediaMuxer is never used — its native MPEG4Writer aborts the
+    // whole process on some devices (uncatchable). Media3's muxer is pure
+    // Java (can only throw, which the downloader catches and falls back to
+    // keeping the .ts) and handles B-frames (ctts), edit lists and Annex-B
+    // sample conversion itself. 1.9.4 is the newest release that only needs
+    // compileSdk 35 (1.10+ requires 36).
+    implementation 'androidx.media3:media3-muxer:1.9.4'
 }

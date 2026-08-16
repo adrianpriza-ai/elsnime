@@ -1,0 +1,481 @@
+/* library.css — You tab (YouTube "You"-style): hub with inline history,
+   shortcut rows, per-series downloads, saved-for-later grid, sub-page back
+   arrows, and the episode picker dialog. */
+
+/*  You hub: shortcut rows — plain, borderless menu rows like YouTube's You
+    page (no icon tiles, no card, no dividers; just label + chevron).  */
+.you-shortcuts {
+	padding-bottom: 10px;
+}
+
+.you-shortcut {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	padding: 12px 4px;
+	background: none;
+	border: 0;
+	color: var(--text-primary);
+	font-size: 15px;
+	font-weight: 600;
+	text-align: left;
+	cursor: pointer;
+	-webkit-tap-highlight-color: transparent;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.you-shortcut:hover {
+	background: var(--bg-hover);
+}
+
+.you-shortcut:active {
+	background: var(--surface-2);
+}
+
+.you-shortcut-label {
+	flex: 1;
+	min-width: 0;
+}
+
+.you-shortcut-chevron {
+	width: 18px;
+	height: 18px;
+	flex-shrink: 0;
+	fill: none;
+	stroke: var(--text-muted);
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/*  You hub: inline history (1-1 copy of Home's Continue Watching; the
+    .section-head / .see-all / .continue-row pieces live in search.css and
+    cards.css, which both views share)  */
+
+/*  You sub-pages  */
+.library-section[hidden] {
+	display: none;
+}
+
+/*  Series-grouped downloads  */
+.dl-series {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	margin-bottom: 12px;
+	overflow: hidden;
+}
+
+.dl-series-head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 12px;
+	cursor: pointer;
+	transition: background var(--transition-fast);
+}
+
+.dl-series-head:hover {
+	background: var(--bg-hover);
+}
+
+.dl-series-thumb {
+	width: 44px;
+	aspect-ratio: 2 / 3;
+	flex-shrink: 0;
+	border-radius: var(--radius-sm);
+	object-fit: cover;
+	background: var(--surface-2);
+}
+
+.dl-series-meta {
+	flex: 1;
+	min-width: 0;
+}
+
+.dl-series-title {
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--text-primary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.dl-series-sub {
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--text-muted);
+	margin-top: 2px;
+}
+
+.dl-series-actions {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-shrink: 0;
+}
+
+.dl-pick-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 7px 14px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-primary);
+	font-family: sans-serif;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	white-space: nowrap;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.dl-pick-btn:hover {
+	background: var(--bg-hover);
+}
+
+.dl-pick-btn svg {
+	width: 14px;
+	height: 14px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.dl-series-eps {
+	display: none;
+	border-top: 1px solid var(--border);
+}
+
+.dl-series.open .dl-series-eps {
+	display: block;
+}
+
+.dl-series.open .dl-series-head {
+	background: var(--bg-hover);
+}
+
+.dl-series-eps .dl-item {
+	margin-bottom: 0;
+	border: 0;
+	border-radius: 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.dl-series-eps .dl-item:last-child {
+	border-bottom: 0;
+}
+
+/*  Episode picker dialog  */
+.ep-picker-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 960;
+	background: rgba(0, 0, 0, 0.6);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+}
+
+.ep-picker-overlay[hidden] {
+	display: none;
+}
+
+.ep-picker-sheet {
+	width: 100%;
+	max-width: 420px;
+	max-height: 78vh;
+	display: flex;
+	flex-direction: column;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	padding: 18px;
+	box-shadow: var(--shadow);
+	animation: confirm-pop var(--transition-normal);
+}
+
+.ep-picker-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.ep-picker-kicker {
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.8px;
+	color: var(--text-muted);
+}
+
+.ep-picker-title {
+	font-size: 16px;
+	font-weight: 700;
+	color: var(--text-primary);
+	margin-top: 3px;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.ep-picker-close {
+	width: 32px;
+	height: 32px;
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-secondary);
+	cursor: pointer;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.ep-picker-close:hover {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}
+
+.ep-picker-close svg {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+}
+
+.ep-picker-hint {
+	font-size: 12px;
+	color: var(--text-muted);
+	margin: 10px 0 4px;
+}
+
+.ep-picker-list {
+	flex: 1;
+	overflow-y: auto;
+	margin: 8px -6px 0;
+	padding: 0 6px;
+	overscroll-behavior: contain;
+}
+
+.ep-picker-item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 4px;
+	border-bottom: 1px solid var(--border);
+	cursor: pointer;
+}
+
+.ep-picker-item:last-child {
+	border-bottom: 0;
+}
+
+.ep-picker-item input[type="checkbox"] {
+	width: 18px;
+	height: 18px;
+	flex-shrink: 0;
+	accent-color: var(--accent-primary);
+}
+
+.ep-picker-item.is-done {
+	opacity: 0.55;
+}
+
+.ep-picker-item.is-done input[type="checkbox"] {
+	visibility: hidden;
+}
+
+.ep-picker-ep {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.ep-picker-ep-name {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.ep-picker-ep-meta {
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.ep-picker-state {
+	flex-shrink: 0;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.4px;
+	text-transform: uppercase;
+	padding: 3px 8px;
+	border-radius: 999px;
+	background: var(--surface-2);
+	color: var(--text-muted);
+}
+
+.ep-picker-state.on-device {
+	color: var(--success);
+	background: rgba(47, 191, 113, 0.12);
+}
+
+.ep-picker-state.downloading {
+	color: var(--accent-primary);
+	background: var(--accent-soft);
+}
+
+.ep-picker-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	margin-top: 16px;
+}
+
+.ep-picker-loading {
+	padding: 20px 4px;
+	color: var(--text-secondary);
+	font-size: 14px;
+}
+
+.ep-picker-error {
+	padding: 16px 4px;
+	color: var(--danger);
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+/*  Watch later grid  */
+.watchlater-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+	gap: 14px;
+}
+
+.watchlater-card {
+	position: relative;
+	background: var(--surface);
+	border-radius: var(--radius-lg);
+	overflow: hidden;
+	cursor: pointer;
+	transition: background var(--transition-fast);
+}
+
+.watchlater-card:hover {
+	background: var(--surface-2);
+}
+
+.watchlater-card img {
+	width: 100%;
+	aspect-ratio: 2 / 3;
+	object-fit: cover;
+	display: block;
+	background: var(--surface-2);
+}
+
+.watchlater-card-info {
+	padding: 10px 10px 12px;
+}
+
+.watchlater-card-title {
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.4;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	color: var(--text-primary);
+}
+
+.watchlater-card-saved {
+	font-size: 11px;
+	color: var(--text-muted);
+	margin-top: 4px;
+}
+
+.watchlater-remove {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	width: 30px;
+	height: 30px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 50%;
+	background: rgba(0, 0, 0, 0.55);
+	color: #fff;
+	cursor: pointer;
+	transition:
+		background var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.watchlater-remove svg {
+	width: 14px;
+	height: 14px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+}
+
+.watchlater-remove:hover {
+	background: var(--danger);
+}
+
+.watchlater-empty,
+.watchlater-loading {
+	text-align: center;
+	padding: 48px 20px;
+	color: var(--text-muted);
+	font-size: 14px;
+}
+
+/*  Save for later button on the detail page  */
+.yt-play-btn--save {
+	transition:
+		background var(--transition-fast),
+		border-color var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.yt-play-btn--save.is-saved {
+	background: var(--accent-soft);
+	border-color: var(--accent-primary);
+	color: var(--accent-primary);
+}
+
+.yt-play-btn--save.is-saved svg {
+	fill: var(--accent-primary);
+}
+
+/*  Compact empty state for the downloads section  */
+@media (min-width: 700px) {
+	.watchlater-grid {
+		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+		gap: 16px;
+	}
+}

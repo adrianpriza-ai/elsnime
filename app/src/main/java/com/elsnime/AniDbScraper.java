@@ -30,7 +30,23 @@ public final class AniDbScraper {
     public void setTransport(HttpTransport t){if(t!=null)transport=t;}
 
     public JSONArray search(String query,String ignoredMode) throws Exception {
+        // Genre/tag words ("yaoi", "yuri", "action", ...) don't match anime
+        // titles on anidb.app's browse page, so route them to the tag search.
+        String tag=matchTag(query);
+        if(tag!=null)return searchTag(tag);
         return cachedArray("anidb-search|"+query,TTL_DAY,()->enrich(aniDbSearch(query),12));
+    }
+
+    /** If the query names a known genre/tag (or an alias like yaoi/yuri),
+     *  return its canonical chip name so search() can route to searchTag();
+     *  otherwise null. Never throws — a tags() failure just skips routing. */
+    private String matchTag(String query){
+        String q=normalize(query);if(q.length()<2)return null;
+        // MAL renamed these in 2021 and anidb.app can't match them as titles.
+        if(q.equals("yaoi")||q.equals("shounen ai"))return "Boys Love";
+        if(q.equals("yuri")||q.equals("shoujo ai"))return "Girls Love";
+        try{JSONArray tags=tags();for(int i=0;i<tags.length();i++){JSONObject t=tags.optJSONObject(i);if(t!=null&&q.equals(normalize(t.optString("name"))))return t.optString("name");}}catch(Exception ignored){}
+        return null;
     }
 
     private JSONArray aniDbSearch(String query) throws Exception {
@@ -109,7 +125,7 @@ public final class AniDbScraper {
 
     public JSONArray trending() throws Exception { return cachedArray("trending",TTL_DAY,this::trendingUncached); }
     private JSONArray trendingUncached() throws Exception {
-        String gql="query{Page(page:1,perPage:24){media(type:ANIME,sort:TRENDING_DESC,status_not:NOT_YET_RELEASED){id idMal format synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}}";
+        String gql="query{Page(page:1,perPage:24){media(type:ANIME,sort:TRENDING_DESC,status_not:NOT_YET_RELEASED){id idMal format isAdult synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}}";
         JSONArray media=postJson(ANILIST,new JSONObject().put("query",gql)).optJSONObject("data").optJSONObject("Page").optJSONArray("media");
         JSONArray out=new JSONArray();if(media==null)return out;
         for(int i=0;i<media.length();i++){JSONObject m=media.optJSONObject(i);if(m==null)continue;JSONObject t=m.optJSONObject("title");String title=t==null?"":t.optString("english",t.optString("romaji"));out.put(new JSONObject().put("id",JSONObject.NULL).put("title",title).put("thumbnail",m.optJSONObject("coverImage").optString("large")).put("score",m.opt("averageScore")).put("anilist",m));}
@@ -127,16 +143,101 @@ public final class AniDbScraper {
 
     public JSONArray searchTag(String tag) throws Exception {
         return cachedArray("tag|"+tag,TTL_DAY,()->{
-            String gql="query($genre:String){Page(page:1,perPage:24){media(type:ANIME,genre:$genre,sort:POPULARITY_DESC){id idMal format synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}}";
-            JSONArray media=postJson(ANILIST,new JSONObject().put("query",gql).put("variables",new JSONObject().put("genre",tag))).optJSONObject("data").optJSONObject("Page").optJSONArray("media");
-            JSONArray out=new JSONArray();if(media!=null)for(int i=0;i<media.length();i++){JSONObject m=media.optJSONObject(i);if(m==null)continue;JSONObject t=m.optJSONObject("title");String title=t==null?"":t.optString("english",t.optString("romaji"));out.put(new JSONObject().put("id",JSONObject.NULL).put("title",title).put("thumbnail",m.optJSONObject("coverImage").optString("large")).put("score",m.opt("averageScore")).put("anilist",m));}return out;
+            // AniList genres are a fixed short list (Action, Romance, ...);
+            // most other tags (Boys Love, Yuri, Yaoi, ...) only exist on MAL
+            // or in AniList's tag taxonomy. Try each source in turn: exact
+            // AniList genre, then the authoritative MAL genre list (which is
+            // what the chips are built from), then AniList's exact tag filter
+            // as a fallback for when MAL/Jikan is unreachable.
+            JSONArray media=anilistTagPage("genre",tag);
+            // MAL-only genres with a close AniList equivalent (MAL's Suspense
+            // is AniList's Thriller) fall back to that genre so they keep
+            // working even while Jikan/MAL is unreachable.
+            String alias=anilistGenreAlias(tag);
+            if((media==null||media.length()==0)&&!normalize(alias).equals(normalize(tag)))
+                media=anilistTagPage("genre",alias);
+            if(media==null||media.length()==0)media=malGenreSearch(tag);
+            if(media==null||media.length()==0)media=anilistTagPage("tag_in",anilistTagName(tag));
+            JSONArray out=new JSONArray();
+            if(media!=null)for(int i=0;i<media.length();i++){
+                JSONObject item=media.optJSONObject(i);if(item==null)continue;
+                // MAL fallback items are already normalized search results.
+                if(item.has("anilist")){out.put(item);continue;}
+                JSONObject t=item.optJSONObject("title");String title=t==null?"":t.optString("english",t.optString("romaji"));
+                out.put(new JSONObject().put("id",JSONObject.NULL).put("title",title).put("thumbnail",item.optJSONObject("coverImage").optString("large")).put("score",item.opt("averageScore")).put("anilist",item));
+            }
+            return out;
         });
     }
 
-    public JSONArray tags() throws Exception { return cachedArray("tags",TTL_DAY,()->{
-        JSONArray data=jikan("/genres/anime").optJSONArray("data"),out=new JSONArray();
-        if(data!=null)for(int i=0;i<data.length();i++){JSONObject x=data.optJSONObject(i);if(x!=null)out.put(new JSONObject().put("id",x.optInt("mal_id")).put("name",x.optString("name")).put("count",x.optInt("count")));}return out;
+    /** Map a MAL-only genre to the closest AniList genre. MAL calls it
+     *  Suspense; AniList's fixed genre list calls it Thriller. Names with no
+     *  AniList equivalent are returned unchanged so the tier stays empty and
+     *  the search falls through to the MAL genre list. */
+    private static String anilistGenreAlias(String tag){
+        switch(normalize(tag)){
+            case "suspense":return "Thriller";
+            default:return tag;
+        }
+    }
+
+    /** Map a user-facing genre name to the exact AniList tag name. MAL renamed
+     *  Yaoi/Yuri to Boys Love/Girls Love in 2021 and AniList spells the BL tag
+     *  with an apostrophe, so the chip name alone never matches its taxonomy. */
+    private static String anilistTagName(String tag){
+        switch(normalize(tag)){
+            case "boys love":case "shounen ai":case "yaoi":return "Boys' Love";
+            case "girls love":case "shoujo ai":case "yuri":return "Yuri";
+            default:return tag;
+        }
+    }
+
+    /** One page of AniList media filtered by exact genre or by tag name
+     *  (tag_in is exact; the plain tag argument is fuzzy). Returns the raw
+     *  media array, or null if the request failed. */
+    private JSONArray anilistTagPage(String filter,String value)throws Exception{
+        boolean isTag="tag_in".equals(filter);
+        String fields="id idMal format isAdult synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres";
+        String gql=isTag
+            ?"query($v:[String]){Page(page:1,perPage:24){media(type:ANIME,tag_in:$v,sort:POPULARITY_DESC){"+fields+"}}}"
+            :"query($v:String){Page(page:1,perPage:24){media(type:ANIME,genre:$v,sort:POPULARITY_DESC){"+fields+"}}}";
+        JSONObject vars=isTag?new JSONObject().put("v",new JSONArray().put(value)):new JSONObject().put("v",value);
+        JSONObject page=postJson(ANILIST,new JSONObject().put("query",gql).put("variables",vars)).optJSONObject("data");
+        return page==null?null:page.optJSONObject("Page").optJSONArray("media");
+    }
+
+    /** MAL-only genre fallback (Avant Garde, Award Winning, Gourmet, ...):
+     *  resolve the MAL genre id from the cached tag list the chips are built
+     *  from, then search Jikan by that id. Returns null (never throws) when
+     *  Jikan is unavailable or the tag has no MAL genre. */
+    private JSONArray malGenreSearch(String tag){
+        try{
+            int malId=0;JSONArray tags=tags();
+            for(int i=0;i<tags.length();i++){JSONObject t=tags.optJSONObject(i);if(t!=null&&tag.equalsIgnoreCase(t.optString("name"))){malId=t.optInt("id");break;}}
+            if(malId<=0)return null;
+            JSONArray data=jikan("/anime?genres="+malId+"&order_by=members&sort=desc&sfw=false").optJSONArray("data");
+            JSONArray out=new JSONArray();if(data!=null)for(int i=0;i<data.length();i++){JSONObject e=data.optJSONObject(i);if(e!=null)out.put(normalizeJikan(e));}
+            return out.length()==0?null:out;
+        }catch(Exception e){return null;}
+    }
+
+    /** All browsable categories in one list, each tagged with its category so
+     *  the UI can group them: MAL explicit genres, demographics (Seinen,
+     *  Shoujo, ...) and themes (Harem, Isekai, ...). Each endpoint is fetched
+     *  independently so one failing (Jikan/MAL outages) doesn't blank the rest.
+     *  Key bumped to tags2 so a stale pre-category cache can't linger. */
+    public JSONArray tags() throws Exception { return cachedArray("tags2",TTL_DAY,()->{
+        JSONArray out=new JSONArray();
+        mergeTags(out,"/genres/anime","genre");
+        mergeTags(out,"/genres/demographics","demographic");
+        mergeTags(out,"/genres/themes","theme");
+        return out;
     }); }
+    private void mergeTags(JSONArray out,String path,String category){
+        try{JSONArray data=jikan(path).optJSONArray("data");
+            if(data!=null)for(int i=0;i<data.length();i++){JSONObject x=data.optJSONObject(i);if(x!=null)out.put(new JSONObject().put("id",x.optInt("mal_id")).put("name",x.optString("name")).put("count",x.optInt("count")).put("category",category));}
+        }catch(Exception ignored){}
+    }
 
     /** AniSkip: resolve the show's MAL id (via AniList, cached) and fetch the
      *  community skip times for an episode over the app's own transport, so
@@ -162,9 +263,9 @@ public final class AniDbScraper {
     }
 
     private JSONArray enrich(JSONArray input,int limit) throws Exception { JSONArray out=new JSONArray();for(int i=0;i<input.length()&&i<limit;i++){JSONObject item=input.optJSONObject(i);if(item==null)continue;try{item.put("anilist",aniList(item.optString("title")));}catch(Exception ignored){}out.put(item);}return out; }
-    private JSONObject aniList(String title) throws Exception {String q="query($search:String){Media(search:$search,type:ANIME){id idMal format synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}";return postJson(ANILIST,new JSONObject().put("query",q).put("variables",new JSONObject().put("search",title))).optJSONObject("data").optJSONObject("Media");}
+    private JSONObject aniList(String title) throws Exception {String q="query($search:String){Media(search:$search,type:ANIME){id idMal format isAdult synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}";return postJson(ANILIST,new JSONObject().put("query",q).put("variables",new JSONObject().put("search",title))).optJSONObject("data").optJSONObject("Media");}
     private JSONObject jikan(String path) throws Exception{return json(get(JIKAN+path,"https://jikan.moe/","https://jikan.moe"));}
-    private JSONObject normalizeJikan(JSONObject entry)throws Exception{JSONObject d=entry.optJSONObject("data");if(d==null)d=entry;JSONObject images=d.optJSONObject("images"),jpg=images==null?null:images.optJSONObject("jpg"),webp=images==null?null:images.optJSONObject("webp");String title=d.optString("title");if(title.isEmpty())title=d.optString("title_english",d.optString("title_japanese"));JSONObject titles=new JSONObject().put("english",d.optString("title_english",title)).put("romaji",title);JSONObject cover=new JSONObject().put("large",jpg==null?"":jpg.optString("large_image_url",jpg.optString("image_url"))).put("extraLarge",webp==null?"":webp.optString("large_image_url",webp.optString("image_url")));JSONArray genres=new JSONArray(),gs=d.optJSONArray("genres");if(gs!=null)for(int i=0;i<gs.length();i++)genres.put(gs.optJSONObject(i).optString("name"));JSONObject al=new JSONObject().put("title",titles).put("coverImage",cover).put("averageScore",d.optDouble("score")*10).put("episodes",d.opt("episodes")).put("status",d.optString("status")).put("seasonYear",d.opt("year")).put("description",d.optString("synopsis")).put("genres",genres);return new JSONObject().put("id",JSONObject.NULL).put("jikan_id",d.optInt("mal_id")).put("title",title).put("thumbnail",webp==null?"":webp.optString("image_url")).put("score",d.opt("score")).put("anilist",al);}
+    private JSONObject normalizeJikan(JSONObject entry)throws Exception{JSONObject d=entry.optJSONObject("data");if(d==null)d=entry;JSONObject images=d.optJSONObject("images"),jpg=images==null?null:images.optJSONObject("jpg"),webp=images==null?null:images.optJSONObject("webp");String title=d.optString("title");if(title.isEmpty())title=d.optString("title_english",d.optString("title_japanese"));JSONObject titles=new JSONObject().put("english",d.optString("title_english",title)).put("romaji",title);JSONObject cover=new JSONObject().put("large",jpg==null?"":jpg.optString("large_image_url",jpg.optString("image_url"))).put("extraLarge",webp==null?"":webp.optString("large_image_url",webp.optString("image_url")));JSONArray genres=new JSONArray(),gs=d.optJSONArray("genres");if(gs!=null)for(int i=0;i<gs.length();i++)genres.put(gs.optJSONObject(i).optString("name"));JSONObject al=new JSONObject().put("title",titles).put("coverImage",cover).put("averageScore",d.optDouble("score")*10).put("episodes",d.opt("episodes")).put("status",d.optString("status")).put("seasonYear",d.opt("year")).put("description",d.optString("synopsis")).put("genres",genres).put("isAdult",d.optString("rating").toLowerCase().startsWith("rx"));return new JSONObject().put("id",JSONObject.NULL).put("jikan_id",d.optInt("mal_id")).put("title",title).put("thumbnail",webp==null?"":webp.optString("image_url")).put("score",d.opt("score")).put("anilist",al);}
 
     private String findEpisodeId(Object value,String wanted){if(value instanceof JSONObject){JSONObject o=(JSONObject)value;if(o.has("id")&&wanted.equals(o.optString("number")))return o.optString("id");for(Iterator<String> it=o.keys();it.hasNext();){String found=findEpisodeId(o.opt(it.next()),wanted);if(!found.isEmpty())return found;}}else if(value instanceof JSONArray){JSONArray a=(JSONArray)value;for(int i=0;i<a.length();i++){String found=findEpisodeId(a.opt(i),wanted);if(!found.isEmpty())return found;}}return "";}
     private void collectEpisodeNumbers(Object value,List<String> out){if(value instanceof JSONObject){JSONObject o=(JSONObject)value;if(o.has("id")&&o.has("number")){String n=o.optString("number");if(!n.isEmpty())out.add(n);}for(Iterator<String> it=o.keys();it.hasNext();)collectEpisodeNumbers(o.opt(it.next()),out);}else if(value instanceof JSONArray){JSONArray a=(JSONArray)value;for(int i=0;i<a.length();i++)collectEpisodeNumbers(a.opt(i),out);}}

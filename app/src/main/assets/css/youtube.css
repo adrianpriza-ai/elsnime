@@ -146,6 +146,18 @@
 	fill: currentColor;
 }
 
+/* Ghost buttons carry outline (stroke) icons — the download arrow and the
+   bookmark are drawn with open paths/polylines, so filling them (as the base
+   rule above does for the solid Play triangle) hides the arrow shaft and
+   turns the bookmark into a solid blob. Keep them stroked instead. */
+.yt-play-btn--ghost svg {
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
 .yt-play-btn:active {
 	transform: scale(0.96);
 }

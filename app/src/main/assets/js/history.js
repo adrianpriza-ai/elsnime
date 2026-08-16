@@ -2,14 +2,21 @@
 // On Android, progress goes to a native batcher (throttled + one transaction per
 // flush; force=true flushes immediately). Dev-mode browsers POST straight away.
 function saveProgress(ep, progress, duration, force) {
-  if (!S.anime) return Promise.resolve();
+  // Downloaded files (Library › Downloads) save under the download's own anime
+  // id + title: S.anime may be unset or belong to a different series.
+  const local = localPlayback && localPlaybackMeta ? {
+    anime_id:    String(localPlaybackMeta.animeId || ''),
+    anime_title: String(localPlaybackMeta.animeTitle || 'Downloaded episode'),
+    thumbnail:   String(localPlaybackMeta.thumbnail || ''),
+  } : null;
+  if (!S.anime && !local) return Promise.resolve();
   const payload = {
-    anime_id:    S.anime.id,
-    anime_title: S.anime.anilist?.title?.english || S.anime.title,
+    anime_id:    local ? local.anime_id : S.anime.id,
+    anime_title: local ? local.anime_title : (S.anime.anilist?.title?.english || S.anime.title),
     episode:     ep,
     progress,
     duration,
-    thumbnail:   S.anime.anilist?.coverImage?.large || S.anime.thumbnail || '',
+    thumbnail:   local ? local.thumbnail : (S.anime.anilist?.coverImage?.large || S.anime.thumbnail || ''),
   };
   if (window.AndroidApi) {
     return new Promise(resolve => {
@@ -23,11 +30,23 @@ function saveProgress(ep, progress, duration, force) {
 
 function maybePersistPlaybackProgress(force = false) {
   const video = document.getElementById('video');
-  if (!S.currentEp || !S.anime || video.currentTime <= 0) return;
+  if (!S.currentEp || !S.currentEp.ep || video.currentTime <= 0) return;
+  // Local playback has no S.anime (or a stale one) — the download's own
+  // metadata is used instead (see saveProgress).
+  if (!S.anime && !(localPlayback && localPlaybackMeta)) return;
 
   const now = Date.now();
   const progress = video.currentTime;
-  const duration = video.duration || 0;
+  // For .ts downloads the single-segment VOD playlist's duration is a
+  // placeholder that overstates the file; the seekable range reflects what
+  // actually buffered, so save that as the true duration. Keeps resume
+  // positions inside the real content instead of the placeholder end.
+  let duration = video.duration || 0;
+  if (localPlayback && localPlaybackMime === 'video/mp2t'
+      && video.seekable && video.seekable.length) {
+    const end = video.seekable.end(video.seekable.length - 1);
+    if (Number.isFinite(end) && end > 0 && end < duration) duration = end;
+  }
   const delta = Math.abs(progress - progressSaveState.progress);
 
   if (!force && now - progressSaveState.at < 5000 && delta < 5) return;
