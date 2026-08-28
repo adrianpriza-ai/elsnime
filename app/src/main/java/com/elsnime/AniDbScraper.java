@@ -125,10 +125,39 @@ public final class AniDbScraper {
 
     public JSONArray trending() throws Exception { return cachedArray("trending",TTL_DAY,this::trendingUncached); }
     private JSONArray trendingUncached() throws Exception {
-        String gql="query{Page(page:1,perPage:24){media(type:ANIME,sort:TRENDING_DESC,status_not:NOT_YET_RELEASED){id idMal format isAdult synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres}}}";
-        JSONArray media=postJson(ANILIST,new JSONObject().put("query",gql)).optJSONObject("data").optJSONObject("Page").optJSONArray("media");
+        String gql="query{Page(page:1,perPage:24){media(type:ANIME,sort:TRENDING_DESC,status_not:NOT_YET_RELEASED){id idMal format isAdult synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear countryOfOrigin description(asHtml:false) genres}}}";
+        return anilistToCards(postJson(ANILIST,new JSONObject().put("query",gql)));
+    }
+
+    /** All-time most popular anime on AniList. */
+    public JSONArray allTimePopular() throws Exception {
+        return cachedArray("alltime",TTL_DAY,()->{
+            String gql="query{Page(page:1,perPage:24){media(type:ANIME,sort:POPULARITY_DESC){id idMal format isAdult synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear countryOfOrigin description(asHtml:false) genres}}}";
+            return anilistToCards(postJson(ANILIST,new JSONObject().put("query",gql)));
+        });
+    }
+
+    /** Upcoming / not-yet-released anime sorted by popularity. */
+    public JSONArray upcoming() throws Exception {
+        return cachedArray("upcoming",TTL_DAY,()->{
+            String gql="query{Page(page:1,perPage:24){media(type:ANIME,status:NOT_YET_RELEASED,sort:POPULARITY_DESC){id idMal format isAdult synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear nextAiringEpisode{episode airingAt} countryOfOrigin description(asHtml:false) genres}}}";
+            return anilistToCards(postJson(ANILIST,new JSONObject().put("query",gql)));
+        });
+    }
+
+    /** Recently-updated airing anime (new episodes). */
+    public JSONArray newEpisodes() throws Exception {
+        return cachedArray("newepisodes",TTL_HOUR,()->{
+            String gql="query{Page(page:1,perPage:24){media(type:ANIME,status:RELEASING,sort:UPDATED_AT_DESC){id idMal format isAdult synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear nextAiringEpisode{episode airingAt} countryOfOrigin description(asHtml:false) genres}}}";
+            return anilistToCards(postJson(ANILIST,new JSONObject().put("query",gql)));
+        });
+    }
+
+    /** Shared: extract a card array from an AniList Page response. */
+    private JSONArray anilistToCards(JSONObject root) throws Exception {
+        JSONArray media=root.optJSONObject("data").optJSONObject("Page").optJSONArray("media");
         JSONArray out=new JSONArray();if(media==null)return out;
-        for(int i=0;i<media.length();i++){JSONObject m=media.optJSONObject(i);if(m==null)continue;JSONObject t=m.optJSONObject("title");String title=t==null?"":t.optString("english",t.optString("romaji"));out.put(new JSONObject().put("id",JSONObject.NULL).put("title",title).put("thumbnail",m.optJSONObject("coverImage").optString("large")).put("score",m.opt("averageScore")).put("anilist",m));}
+        for(int i=0;i<media.length();i++){JSONObject m=media.optJSONObject(i);if(m==null)continue;String co=m.optString("countryOfOrigin","");if("CN".equals(co))continue;JSONObject t=m.optJSONObject("title");String title=t==null?"":t.optString("english",t.optString("romaji"));out.put(new JSONObject().put("id",JSONObject.NULL).put("title",title).put("thumbnail",m.optJSONObject("coverImage").optString("large")).put("score",m.opt("averageScore")).put("anilist",m));}
         return out;
     }
 
@@ -331,7 +360,7 @@ public final class AniDbScraper {
             catch(IOException e){
                 if(e.getMessage()!=null&&e.getMessage().contains("Cloudflare")){
                     lastChallenge=e;
-                    try{Thread.sleep(1200L*(attempt+1));}catch(InterruptedException ie){Thread.currentThread().interrupt();break;}
+                    try{Thread.sleep(10000L*(attempt+1));}catch(InterruptedException ie){Thread.currentThread().interrupt();break;}
                 }else throw e;
             }
         }

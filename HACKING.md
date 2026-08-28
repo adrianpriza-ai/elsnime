@@ -63,7 +63,7 @@ pure-Java MP4 writer. The system `MediaMuxer` is never used (see step 4 below).
 | `ui-loader.js` | Injects the `views/*.html` partials into `#main`, `#bottom-nav`, `#overlays`; exposes `window.__UI_READY` (loaded first) |
 | `boot.js` | Startup (awaits `__UI_READY`), view routing, keyboard shortcuts (incl. `D` → Downloads), pull-to-refresh |
 | `core.js` | `androidRequest()` bridge helper, `showToast()`, shared utilities, `playInMpvNative()` |
-| `home.js` | Home dashboard: trending, continue-watching row |
+| `home.js` | Home dashboard: trending, continue-watching row, title resolution for cards without AniDB |
 | `search.js` | Search box + browse-by-genre grid (name/count cards, demographics, themes); genre-word queries route to the tag search |
 | `detail.js` | Series pages, episode grid, per-episode + Download All wiring |
 | `player.js` | Plyr + hls.js wiring, skip buttons, resume, MPV launch (streams + downloads), local-file playback, error mapping |

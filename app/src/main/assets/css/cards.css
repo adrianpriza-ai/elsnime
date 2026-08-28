@@ -79,11 +79,11 @@
 	gap: 12px;
 	overflow-x: auto;
 	padding-bottom: 8px;
-	/* Smooth, deliberate horizontal sliding on touch: momentum scrolling for
-	   the WebView, snap-to-card so the row never stops mid-card, and no
-	   scrollbar (horizontal overscroll stays in the row, not the page). */
+	/* Smooth horizontal sliding on touch: momentum scrolling for the WebView,
+	   proximity snap so the row doesn't fight the user's finger mid-scroll,
+	   and no scrollbar (horizontal overscroll stays in the row, not the page). */
 	-webkit-overflow-scrolling: touch;
-	scroll-snap-type: x mandatory;
+	scroll-snap-type: x proximity;
 	overscroll-behavior-x: contain;
 	scrollbar-width: none;
 }
@@ -152,4 +152,27 @@
 
 .trending-grid {
 	margin-bottom: 28px;
+}
+
+/*  Horizontal scroll row — Netflix/YouTube style.
+    Used on Home (trending, all-time, upcoming, new episodes) and Search. */
+.anime-row {
+	display: flex;
+	gap: 12px;
+	overflow-x: auto;
+	padding-bottom: 8px;
+	-webkit-overflow-scrolling: touch;
+	scroll-snap-type: x proximity;
+	overscroll-behavior-x: contain;
+	scrollbar-width: none;
+}
+
+.anime-row::-webkit-scrollbar {
+	display: none;
+}
+
+.anime-row .anime-card {
+	flex-shrink: 0;
+	width: 130px;
+	scroll-snap-align: start;
 }

@@ -75,6 +75,18 @@ public final class MainActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},NOTIFICATION_PERMISSION_REQUEST);
         }
+        // Schedule periodic episode check (~12h) for followed anime
+        scheduleEpisodeCheck();
+    }
+
+    private void scheduleEpisodeCheck() {
+        android.app.AlarmManager am=(android.app.AlarmManager)getSystemService(ALARM_SERVICE);
+        if(am==null)return;
+        Intent intent=new Intent(this,EpisodeCheckReceiver.class);
+        android.app.PendingIntent pi=android.app.PendingIntent.getBroadcast(this,0,intent,android.app.PendingIntent.FLAG_UPDATE_CURRENT|android.app.PendingIntent.FLAG_IMMUTABLE);
+        long interval=12*60*60*1000L; // 12 hours
+        long trigger=System.currentTimeMillis()+interval;
+        am.setRepeating(android.app.AlarmManager.RTC_WAKEUP,trigger,interval,pi);
     }
     @Override public void onRequestPermissionsResult(int code,String[] perms,int[] grants){
         super.onRequestPermissionsResult(code,perms,grants);
@@ -475,7 +487,10 @@ public final class MainActivity extends Activity {
             if(method.equals("POST")&&path.equals("/api/resolve"))return scraper.resolve(new JSONObject(body)).toString();
             if(method.equals("GET")&&path.equals("/api/tags"))return scraper.tags().toString();
             if(method.equals("GET")&&path.equals("/api/aniskip"))return scraper.skipTimes(p.q("title"), p.q("episode")).toString();
-            if(method.equals("GET")&&path.equals("/api/home"))return new JSONObject().put("trending",scraper.trending()).put("history",db.history()).toString();
+            if(method.equals("GET")&&path.equals("/api/home"))return new JSONObject().put("trending",scraper.trending()).put("history",db.history()).put("alltime",scraper.allTimePopular()).put("upcoming",scraper.upcoming()).put("newepisodes",scraper.newEpisodes()).toString();
+            if(method.equals("GET")&&path.equals("/api/alltime"))return scraper.allTimePopular().toString();
+            if(method.equals("GET")&&path.equals("/api/upcoming"))return scraper.upcoming().toString();
+            if(method.equals("GET")&&path.equals("/api/new-episodes"))return scraper.newEpisodes().toString();
             if(path.equals("/api/history")&&method.equals("GET"))return db.history(p.q("anime_id")).toString();
             if(path.equals("/api/history")&&method.equals("POST")){db.save(new JSONObject(body));return ok();}
             // Clear-all (Settings > Clear history): one DELETE, no fetch needed.
@@ -485,9 +500,15 @@ public final class MainActivity extends Activity {
             if(path.equals("/api/watched")&&method.equals("POST")){db.markWatchedUpto(new JSONObject(body));return ok();}
             if(path.equals("/api/settings")&&method.equals("GET"))return db.settings().toString();
             if(path.equals("/api/settings")&&method.equals("POST")){db.settings(new JSONObject(body));return ok();}
+            // Followed anime (save-for-later + episode notifications)
+            if(method.equals("GET")&&path.equals("/api/follows"))return db.followed().toString();
+            if(method.equals("POST")&&path.equals("/api/follow")){JSONObject fb=new JSONObject(body);db.follow(fb.optString("anime_id"),fb.optString("anime_title"),fb.optString("thumbnail"),fb.optString("anilist_json","{}"));return ok();}
+            if(method.equals("DELETE")&&path.startsWith("/api/follow/")){db.unfollow(path.substring(12));return ok();}
+            if(method.equals("GET")&&path.equals("/api/follow-status")){String fid=p.q("anime_id");JSONObject fs=new JSONObject();fs.put("followed",db.isFollowed(fid));return fs.toString();}
             return new JSONObject().put("error","Not found").toString();
         }catch(Exception e){try{return new JSONObject().put("error",e.getMessage()==null?"Request failed":e.getMessage()).toString();}catch(Exception ignored){return "{}";}}}
         private String ok(){return "{\"ok\":true}";}
+
     }
 
     static final class UriParts { final String path; final String query; UriParts(String raw){int i=raw.indexOf('?');path=i<0?raw:raw.substring(0,i);query=i<0?"":raw.substring(i+1);} String q(String key){return q(key,"");} String q(String key,String fallback){for(String pair:query.split("&")){String[] x=pair.split("=",2);if(x.length==2&&x[0].equals(key))try{return java.net.URLDecoder.decode(x[1],"UTF-8");}catch(Exception ignored){}}return fallback;} }
@@ -496,8 +517,8 @@ public final class MainActivity extends Activity {
         private static final int MAX_CACHE_ENTRIES = 250;
         private volatile long lastSweep = 0;
         HistoryDb(Context c){super(c,"elsnime.db",null,3);}
-        public void onCreate(SQLiteDatabase d){d.execSQL("CREATE TABLE history(id INTEGER PRIMARY KEY AUTOINCREMENT,anime_id TEXT NOT NULL,anime_title TEXT NOT NULL,episode TEXT NOT NULL,progress REAL DEFAULT 0,duration REAL DEFAULT 0,thumbnail TEXT DEFAULT '',last_watched INTEGER DEFAULT (strftime('%s','now')),UNIQUE(anime_id,episode))");d.execSQL("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)");d.execSQL("CREATE TABLE cache(key TEXT PRIMARY KEY,value TEXT NOT NULL,expires_at INTEGER NOT NULL,last_updated INTEGER NOT NULL DEFAULT 0)");}
-        public void onUpgrade(SQLiteDatabase d,int a,int b){d.execSQL("CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY,value TEXT NOT NULL,expires_at INTEGER NOT NULL,last_updated INTEGER NOT NULL DEFAULT 0)");if(a<3){try{d.execSQL("ALTER TABLE cache ADD COLUMN last_updated INTEGER NOT NULL DEFAULT 0");}catch(Exception ignored){}}}
+        public void onCreate(SQLiteDatabase d){d.execSQL("CREATE TABLE history(id INTEGER PRIMARY KEY AUTOINCREMENT,anime_id TEXT NOT NULL,anime_title TEXT NOT NULL,episode TEXT NOT NULL,progress REAL DEFAULT 0,duration REAL DEFAULT 0,thumbnail TEXT DEFAULT '',last_watched INTEGER DEFAULT (strftime('%s','now')),UNIQUE(anime_id,episode))");d.execSQL("CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)");d.execSQL("CREATE TABLE cache(key TEXT PRIMARY KEY,value TEXT NOT NULL,expires_at INTEGER NOT NULL,last_updated INTEGER NOT NULL DEFAULT 0)");d.execSQL("CREATE TABLE followed(anime_id TEXT PRIMARY KEY,anime_title TEXT NOT NULL,thumbnail TEXT DEFAULT '',last_known_eps TEXT DEFAULT '0',anilist_json TEXT DEFAULT '{}',followed_at INTEGER DEFAULT (strftime('%s','now')))");}
+        public void onUpgrade(SQLiteDatabase d,int a,int b){d.execSQL("CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY,value TEXT NOT NULL,expires_at INTEGER NOT NULL,last_updated INTEGER NOT NULL DEFAULT 0)");if(a<3){try{d.execSQL("ALTER TABLE cache ADD COLUMN last_updated INTEGER NOT NULL DEFAULT 0");}catch(Exception ignored){}}try{d.execSQL("CREATE TABLE IF NOT EXISTS followed(anime_id TEXT PRIMARY KEY,anime_title TEXT NOT NULL,thumbnail TEXT DEFAULT '',last_known_eps TEXT DEFAULT '0',anilist_json TEXT DEFAULT '{}',followed_at INTEGER DEFAULT (strftime('%s','now')))");}catch(Exception ignored){}}
         String cacheGet(String key){
             maybeSweep();
             try(Cursor c=getReadableDatabase().query("cache",new String[]{"value","expires_at"},"key=?",new String[]{key},null,null,null)){
@@ -620,6 +641,35 @@ public final class MainActivity extends Activity {
                 v.put("value",String.valueOf(x.opt(k)));
                 d.insertWithOnConflict("settings",null,v,SQLiteDatabase.CONFLICT_REPLACE);
             }
+        }
+
+        //  Followed anime (follow/save-for-later + episode notifications)
+        void follow(String animeId,String title,String thumbnail,String anilistJson){
+            ContentValues v=new ContentValues();
+            v.put("anime_id",animeId);v.put("anime_title",title);v.put("thumbnail",thumbnail);v.put("anilist_json",anilistJson);v.put("last_known_eps","0");
+            getWritableDatabase().insertWithOnConflict("followed",null,v,SQLiteDatabase.CONFLICT_REPLACE);
+        }
+        void unfollow(String animeId){getWritableDatabase().delete("followed","anime_id=?",new String[]{animeId});}
+        boolean isFollowed(String animeId){try(Cursor c=getReadableDatabase().query("followed",new String[]{"anime_id"},"anime_id=?",new String[]{animeId},null,null,null)){return c.moveToFirst();}catch(Exception e){return false;}}
+        JSONArray followed(){
+            JSONArray r=new JSONArray();
+            try(Cursor c=getReadableDatabase().query("followed",null,null,null,null,null,"followed_at DESC")){
+                while(c.moveToNext()){
+                    JSONObject o=new JSONObject();
+                    o.put("anime_id",c.getString(c.getColumnIndexOrThrow("anime_id")));
+                    o.put("anime_title",c.getString(c.getColumnIndexOrThrow("anime_title")));
+                    o.put("thumbnail",c.getString(c.getColumnIndexOrThrow("thumbnail")));
+                    o.put("last_known_eps",c.getString(c.getColumnIndexOrThrow("last_known_eps")));
+                    o.put("anilist_json",c.getString(c.getColumnIndexOrThrow("anilist_json")));
+                    o.put("followed_at",c.getLong(c.getColumnIndexOrThrow("followed_at")));
+                    r.put(o);
+                }
+            }catch(Exception ignored){}
+            return r;
+        }
+        void updateFollowEps(String animeId,String eps){
+            ContentValues v=new ContentValues();v.put("last_known_eps",eps);
+            getWritableDatabase().update("followed",v,"anime_id=?",new String[]{animeId});
         }
     }
 }

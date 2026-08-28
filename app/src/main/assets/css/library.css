@@ -472,6 +472,25 @@
 	fill: var(--accent-primary);
 }
 
+/*  Follow button on the detail page (episode notifications) */
+.yt-play-btn--follow {
+	transition:
+		background var(--transition-fast),
+		border-color var(--transition-fast),
+		color var(--transition-fast);
+}
+
+.yt-play-btn--follow.is-following {
+	background: var(--accent-soft);
+	border-color: var(--accent-primary);
+	color: var(--accent-primary);
+}
+
+.yt-play-btn--follow.is-following svg {
+	fill: var(--accent-primary);
+}
+
+
 /*  Compact empty state for the downloads section  */
 @media (min-width: 700px) {
 	.watchlater-grid {

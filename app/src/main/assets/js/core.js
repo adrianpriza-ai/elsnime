@@ -132,13 +132,14 @@ function renderLibrarySection(name) {
   if (main) main.scrollTop = 0;
   const hub = document.getElementById('you-hub');
   if (hub) hub.hidden = name !== 'hub';
-  ['downloads', 'watchlater', 'history', 'settings'].forEach(s => {
+  ['downloads', 'watchlater', 'following', 'history', 'settings'].forEach(s => {
     const page = document.getElementById('you-page-' + s);
     if (page) page.hidden = s !== name;
   });
   if (name === 'hub') loadContinueWatching(document.getElementById('you-history-section'));
   else if (name === 'downloads') renderDownloads();
   else if (name === 'watchlater') renderWatchLater();
+  else if (name === 'following') renderFollowing();
   else if (name === 'history') loadHistory();
   else if (name === 'settings') refreshPillSliders();
 }
@@ -147,6 +148,67 @@ function renderLibrarySection(name) {
 function youBack() {
   librarySection = 'hub';
   renderLibrarySection('hub');
+}
+
+//  Following: anime followed for episode notifications
+async function renderFollowing() {
+  const el = document.getElementById('following-list');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--text-secondary);font-size:14px;padding:20px 0">Loading…</div>';
+  try {
+    const follows = await api.get('/api/follows');
+    if (!Array.isArray(follows) || !follows.length) {
+      el.innerHTML = '<div class="empty"><div class="empty-icon"><svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg></div>No followed anime yet.<div class="empty-hint">Tap Follow on a series page to get notified when new episodes drop.</div></div>';
+      return;
+    }
+    el.innerHTML = '<div class="watchlater-grid">' + follows.map(f => {
+      const aid = String(f.anime_id || '').replace(/'/g, '');
+      const eps = f.last_known_eps || '?';
+      return `<div class="watchlater-card" onclick="openFollowedAnime('${aid}')">
+        <img src="${escapeHTML(f.thumbnail || '')}" alt="" loading="lazy" onerror="this.style.background='var(--surface-2)'">
+        <button class="watchlater-remove" onclick="event.stopPropagation();unfollowFromList('${aid}')" title="Unfollow" aria-label="Unfollow">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+        <div class="watchlater-card-info">
+          <div class="watchlater-card-title">${escapeHTML(f.anime_title || 'Unknown')}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${eps} episodes</div>
+        </div>
+      </div>`;
+    }).join('') + '</div>';
+  } catch (_) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">!</div>Failed to load followed anime.</div>';
+  }
+}
+
+async function openFollowedAnime(animeId) {
+  showToast('Loading…', 'info');
+  // Try to get the full anime details through search
+  const follows = await api.get('/api/follows').catch(() => []);
+  const f = Array.isArray(follows) ? follows.find(x => String(x.anime_id) === String(animeId)) : null;
+  if (f && f.anilist_json) {
+    try {
+      const al = JSON.parse(f.anilist_json);
+      openAnime({ id: animeId, title: f.anime_title, thumbnail: f.thumbnail, anilist: al });
+      return;
+    } catch (_) {}
+  }
+  // Fallback: search by title
+  const results = await api.get('/api/search?q=' + encodeURIComponent(f ? f.anime_title : animeId) + '&type=' + (S.settings.sub_lang || 'sub')).catch(() => []);
+  if (Array.isArray(results) && results.length) {
+    openAnime(results[0]);
+  } else {
+    showToast('Could not open this title', 'error');
+  }
+}
+
+async function unfollowFromList(animeId) {
+  try {
+    await api.del('/api/follow/' + encodeURIComponent(animeId));
+    showToast('Unfollowed', 'success');
+    renderFollowing();
+  } catch (_) {
+    showToast('Failed to unfollow', 'error');
+  }
 }
 
 // Bottom-nav tabs: jump to a root view and reset the back stack
@@ -296,6 +358,21 @@ function animeGridHTML(items, title, highlight) {
     filterAdultItems(items).map(r => animeCardHTML(r, highlight)).join('') + '</div>';
 }
 
+// Horizontal scroll row of anime cards — used on the Home and Search tabs.
+function animeRowHTML(items, title, highlight) {
+  const visible = filterAdultItems(items);
+  if (!visible.length) return '';
+  return `<div class="section-head"><div class="section-title">${title}</div></div>` +
+    '<div class="anime-row">' +
+    visible.map(r => animeCardHTML(r, highlight)).join('') + '</div>';
+}
+
+// Skeleton placeholder shaped like a horizontal row (used while fetching).
+function skeletonRowHTML(count) {
+  return '<div class="anime-row">' +
+    Array(count).fill('<div class="skeleton" style="min-width:120px;aspect-ratio:2/3;border-radius:var(--radius-lg)"></div>').join('') + '</div>';
+}
+
 // "Mature content" gate: off by default (Settings > Content). When off,
 // results carrying an AniList isAdult flag are dropped from every grid
 // (home, search, genre browse). The flag travels on the payload's anilist
@@ -307,6 +384,19 @@ function showAdultContent() {
 function filterAdultItems(items) {
   const list = items || [];
   return showAdultContent() ? list : list.filter(r => !(r.anilist && r.anilist.isAdult));
+}
+
+// Best available persistent ID for follow/save-for-later. AniDB IDs are
+// preferred because the episode-check backend needs them to query AniDB;
+// AniList IDs are used as a fallback so titles without an AniDB entry can
+// still be saved and followed (notifications are skipped for those).
+function bestAnimeId(anime) {
+  if (!anime) return null;
+  return anime.id || (anime.anilist && anime.anilist.id ? 'al-' + anime.anilist.id : null);
+}
+
+function isAnidbId(id) {
+  return id && !String(id).startsWith('al-');
 }
 
 function skeletonGridHTML(count) {

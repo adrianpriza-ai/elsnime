@@ -26,13 +26,14 @@ function findSavedLater(animeId) {
 //  later (no title search needed) without bloating localStorage with the
 //  full AniList payload (descriptions, synonyms, relations, ...).
 function toggleSaveLater() {
-  if (!S.anime || !S.anime.id) {
+  const aid = bestAnimeId(S.anime);
+  if (!aid) {
     showToast('Could not save this title', 'error');
     return;
   }
   // Strip apostrophes so the id is safe to interpolate in single-quoted
   // onclick args when the Watch later grid renders.
-  const id = String(S.anime.id).replace(/'/g, '');
+  const id = String(aid).replace(/'/g, '');
   const list = loadWatchLater();
   const i = list.findIndex(w => String(w.animeId) === id);
   if (i >= 0) {
@@ -46,7 +47,7 @@ function toggleSaveLater() {
       thumbnail: al.coverImage?.extraLarge || al.coverImage?.large || S.anime.thumbnail || '',
       savedAt: Date.now(),
       anime: {
-        id: S.anime.id,
+        id: aid,
         title: S.anime.title,
         thumbnail: S.anime.thumbnail,
         anilist: {
@@ -75,13 +76,14 @@ function toggleSaveLater() {
 function updateSaveLaterButton() {
   const btn = document.getElementById('btn-save-later');
   if (!btn) return;
-  if (!S.anime || !S.anime.id) {
+  const aid = bestAnimeId(S.anime);
+  if (!aid) {
     btn.disabled = true;
     btn.classList.remove('is-saved');
     return;
   }
   btn.disabled = false;
-  const saved = !!findSavedLater(S.anime.id);
+  const saved = !!findSavedLater(aid);
   btn.classList.toggle('is-saved', saved);
   const label = btn.querySelector('.btn-save-label');
   if (label) label.textContent = saved ? 'Saved' : 'Save for later';

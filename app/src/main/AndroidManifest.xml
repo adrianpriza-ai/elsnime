@@ -25,5 +25,8 @@
         <!-- stopWithTask=false: swiping the app away must not kill an active
              download (the foreground notification keeps the user informed). -->
         <service android:name=".DownloadService" android:exported="false" android:stopWithTask="false" android:foregroundServiceType="dataSync" />
+        <!-- Periodic episode check: fires every ~12h to notify about new episodes
+             for followed anime. Scheduled in MainActivity.onCreate(). -->
+        <receiver android:name=".EpisodeCheckReceiver" android:exported="false" />
     </application>
 </manifest>

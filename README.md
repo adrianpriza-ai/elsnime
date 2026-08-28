@@ -16,6 +16,7 @@ Elsnime is an anime streaming client for Android. A vanilla CSS/JS frontend runs
 - Native episode & full-series downloads saved to `Movies/Elsnime/` as MP4.
 - Offline-capable player: Plyr, hls.js, and the UI font ship inside the APK — no CDN at load time.
 - All data stored locally in SQLite, with TTL caching and scoped refresh to respect API rate limits.
+- Chinese animation (donghua) filtered out of AniList listings since those titles are unavailable on AniDB.
 
 ---
 
@@ -46,6 +47,12 @@ Elsnime is an anime streaming client for Android. A vanilla CSS/JS frontend runs
 - **Resume After Interruption**: Downloads survive a force-stop or process death — progress is written to disk after every segment, and the next launch resumes from the last completed segment (or re-runs the MP4 conversion when all segments were already fetched).
 - **Play in-App**: A Play button on each download streams the file through a loopback HTTP server into the built-in player (`.mp4` direct, `.ts` via hls.js) — no external app needed. Played downloads record progress in watch history, resume from where you left off, and open in MPV like any streamed episode.
 - **Permission-Free on Android 10+**: Files land via MediaStore; Android 6–9 ask for legacy storage access once. On Android 13+ the app requests notification permission once so download progress can show in the shade (denying only hides the notification — downloads still work).
+
+### Follow & Save for Later
+
+- Follow any anime from its detail page; a background check every 12 hours watches for new episodes on AniDB and pushes a notification.
+- Titles without an AniDB entry can still be followed and saved — stored under their AniList ID so they open instantly from the library.
+- Save for later puts anime in a local list (no account needed) for quick access without searching.
 
 ### History and Resume Playback
 

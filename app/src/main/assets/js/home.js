@@ -1,21 +1,50 @@
-//  Home: continue watching + popular 
-// Android fetches both in one /api/home call; dev-mode backends that lack it
-// fall back to the individual /api/history + /api/trending requests.
+//  Home: continue watching + trending/alltime/upcoming/new-episodes rows
+// Android fetches everything in one /api/home call; dev-mode backends that
+// lack it fall back to individual endpoints.
 
 async function loadHome() {
   const data = await api.get('/api/home').catch(() => null);
   if (data && (Array.isArray(data.history) || Array.isArray(data.trending))) {
     await Promise.all([
       loadHomeContinue(Array.isArray(data.history) ? data.history : null),
-      loadHomeTrending(Array.isArray(data.trending) && data.trending.length ? data.trending : null)
+      loadHomeRow('home-trending-section', 'Popular This Month', data.trending),
+      loadHomeRow('home-newepisodes-section', 'New Episodes', data.newepisodes),
+      loadHomeRow('home-upcoming-section', 'Up & Coming', data.upcoming),
+      loadHomeRow('home-alltime-section', 'All-Time Popular', data.alltime),
     ]);
   } else {
-    await Promise.all([loadHomeContinue(), loadHomeTrending()]);
+    await Promise.all([
+      loadHomeContinue(),
+      loadHomeRowFallback('home-trending-section', 'Popular This Month', '/api/trending'),
+      loadHomeRowFallback('home-newepisodes-section', 'New Episodes', '/api/new-episodes'),
+      loadHomeRowFallback('home-upcoming-section', 'Up & Coming', '/api/upcoming'),
+      loadHomeRowFallback('home-alltime-section', 'All-Time Popular', '/api/alltime'),
+    ]);
   }
 }
 
 async function loadHomeContinue(existing) {
   return loadContinueWatching(document.getElementById('home-continue-section'), existing);
+}
+
+// Render a horizontal scroll row from pre-loaded data. If data is null or
+// empty the section stays hidden — no wasted DOM.
+async function loadHomeRow(elId, title, items) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!Array.isArray(items) || !items.length) { el.innerHTML = ''; return; }
+  el.innerHTML = animeRowHTML(items, title);
+}
+
+// Fallback: fetch the section from its own endpoint when /api/home is missing.
+async function loadHomeRowFallback(elId, title, endpoint) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const type = S.settings.sub_lang || 'sub';
+  const sep = endpoint.includes('?') ? '&' : '?';
+  const items = await api.get(endpoint + sep + 'type=' + type).catch(() => null);
+  if (!Array.isArray(items) || !items.length) { el.innerHTML = ''; return; }
+  el.innerHTML = animeRowHTML(items, title);
 }
 
 // Renders the Continue Watching row into the given element. Shared by Home and
@@ -46,21 +75,6 @@ async function loadContinueWatching(el, existing) {
         </div>
       </div>`;
     }).join('') + '</div>';
-}
-
-async function loadHomeTrending(existing) {
-  const el = document.getElementById('home-trending-section');
-  if (!el) return;
-  let trending = Array.isArray(existing) && existing.length ? existing : null;
-  if (!trending) {
-    el.innerHTML = '<div class="section-title">Popular This Month</div>' + skeletonGridHTML(8);
-    trending = await loadPopular();
-  }
-  if (!Array.isArray(trending) || !trending.length) {
-    el.innerHTML = '<div class="section-title">Popular This Month</div><div class="empty"><div class="empty-icon">!</div>Popular anime could not be loaded. Tap Home to retry.</div>';
-    return;
-  }
-  el.innerHTML = animeGridHTML(trending, 'Popular This Month');
 }
 
 async function loadPopular() {
@@ -192,13 +206,14 @@ async function openByTitle(cardId) {
     openAnime({ ...playable, anilist: playable.anilist || al });
     return;
   }
-  showToast('Not found. Try searching manually.', 'error');
-  document.querySelectorAll('.chip.active').forEach(chip => chip.classList.remove('active'));
-  searchInput.value = label;
-  updateSearchClear();
-  renderActiveFilter();
-  showView('search');
-  doSearch(label);
+  // Fallback: show the detail view with whatever AniList data we have,
+  // even if there is no AniDB entry (e.g. upcoming or niche titles).
+  openAnime({
+    id: null,
+    title: al.title?.english || al.title?.romaji || label,
+    thumbnail: al.coverImage?.large || al.coverImage?.extraLarge || card.thumbnail || '',
+    anilist: al
+  });
 }
 
 function showResolvePicker(candidates, card) {
@@ -238,15 +253,15 @@ function closeResolvePicker() {
   resolveCard = null;
 }
 
-// Popular grid shown on the Search tab
+// Popular row shown on the Search tab (horizontal scroll)
 async function loadTrending() {
   const el = document.getElementById('trending-section');
   if (!el) return;
-  el.innerHTML = '<div class="section-title">Popular This Month</div>' + skeletonGridHTML(6);
+  el.innerHTML = '<div class="section-title searching"><span class="searching-dot"></span>Loading…</div>' + skeletonRowHTML(8);
   const trending = await loadPopular();
   if (!Array.isArray(trending) || !trending.length) {
     el.innerHTML = '';
     return;
   }
-  el.innerHTML = animeGridHTML(trending, 'Popular This Month');
+  el.innerHTML = animeRowHTML(trending, 'Popular This Month');
 }

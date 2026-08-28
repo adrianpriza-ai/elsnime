@@ -30,6 +30,16 @@
 			<button
 				class="you-shortcut"
 				type="button"
+				onclick="openLibrarySection('following')"
+			>
+				<span class="you-shortcut-label">Following</span>
+				<svg class="you-shortcut-chevron" viewBox="0 0 24 24">
+					<polyline points="9 18 15 12 9 6"></polyline>
+				</svg>
+			</button>
+			<button
+				class="you-shortcut"
+				type="button"
 				onclick="openLibrarySection('settings')"
 			>
 				<span class="you-shortcut-label">Settings</span>
@@ -80,6 +90,16 @@
 		</button>
 		<div class="page-title">Saved for later</div>
 		<div id="watchlater-list"></div>
+	</section>
+
+	<!-- Following: anime you follow for episode notifications -->
+	<section class="library-section" id="you-page-following" hidden>
+		<button class="back-btn" onclick="youBack()">
+			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+			Back
+		</button>
+		<div class="page-title">Following</div>
+		<div id="following-list"></div>
 	</section>
 
 	<!-- Full history (also reached from Home via See all) -->

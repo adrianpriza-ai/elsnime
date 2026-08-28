@@ -282,7 +282,7 @@ async function doSearch(q, tag = '') {
   const el = document.getElementById('search-results');
   el.innerHTML =
     '<div class="section-title searching"><span class="searching-dot"></span>Searching…</div>' +
-    skeletonGridHTML(12);
+    skeletonRowHTML(8);
   const query = tag ? `tag=${encodeURIComponent(tag)}` : `q=${encodeURIComponent(q)}&type=${S.settings.sub_lang||'sub'}`;
   const results = await api.get(`/api/search?${query}`).catch(() => null);
   if (seq !== searchSeq) return; // superseded by a newer search or a clear
@@ -316,7 +316,7 @@ function renderResults(results, heading = 'Results', highlight = '', isGenre = f
       '<button type="button" class="empty-action" onclick="clearAllFilters()">Clear search</button></div>';
     return;
   }
-  el.innerHTML = animeGridHTML(visible, `${heading} (${visible.length})`, highlight);
+  el.innerHTML = animeRowHTML(visible, `${heading} (${visible.length})`, highlight);
 }
 
 // Wire the search box and chip rows. Runs from boot() once the UI partials

@@ -36,6 +36,7 @@ async function openAnime(anime) {
   // Update seg buttons
   updateSegPills(S.translation);
   updateSaveLaterButton();
+  updateFollowButton();
 
   pushView('detail');
   updateDescToggle();
@@ -89,6 +90,12 @@ async function getHistoryMap() {
 
 async function loadEpisodes() {
   if (!S.anime) return;
+  if (!S.anime.id) {
+    document.getElementById('eps-grid').innerHTML = '<div style="color:var(--text-secondary);font-size:14px;padding:20px 0">Episodes not yet available on AniDB.</div>';
+    S.episodes = [];
+    await renderEpisodes();
+    return;
+  }
   document.getElementById('eps-grid').innerHTML = '<div style="color:var(--text-secondary);font-size:14px;padding:20px 0">Loading episodes...</div>';
   const data = await api.get(`/api/episodes?id=${S.anime.id}&type=${S.translation}`).catch(() => ({episodes:[]}));
   S.episodes = data.episodes || [];
@@ -173,3 +180,63 @@ function updateSegPills(lang) {
 
 // Keep the sub/dub control in sync after layout settles
 window.addEventListener('load', () => updateSegPills(S.translation || 'sub'));
+
+//  Follow / Unfollow: save anime for episode notifications
+let followState = false; // cached to avoid extra requests
+
+async function updateFollowButton() {
+  const btn = document.getElementById('btn-follow');
+  if (!btn) return;
+  const aid = bestAnimeId(S.anime);
+  if (!aid) {
+    btn.disabled = true;
+    btn.classList.remove('is-following');
+    return;
+  }
+  btn.disabled = false;
+  try {
+    const res = await api.get('/api/follow-status?anime_id=' + encodeURIComponent(aid));
+    followState = !!(res && res.followed);
+  } catch (_) {
+    followState = false;
+  }
+  btn.classList.toggle('is-following', followState);
+  const label = btn.querySelector('.btn-follow-label');
+  if (label) label.textContent = followState ? 'Following' : 'Follow';
+}
+
+async function toggleFollow() {
+  const aid = bestAnimeId(S.anime);
+  if (!aid) {
+    showToast('Could not follow this title', 'error');
+    return;
+  }
+  const al = S.anime.anilist || {};
+  const title = al.title?.english || al.title?.romaji || S.anime.title || 'Anime';
+  const thumbnail = al.coverImage?.extraLarge || al.coverImage?.large || S.anime.thumbnail || '';
+  const hasAnidb = isAnidbId(aid);
+  try {
+    if (followState) {
+      await api.del('/api/follow/' + encodeURIComponent(aid));
+      followState = false;
+      showToast('Unfollowed', 'success');
+    } else {
+      await api.post('/api/follow', {
+        anime_id: aid,
+        anime_title: title,
+        thumbnail: thumbnail,
+        anilist_json: JSON.stringify(al)
+      });
+      followState = true;
+      showToast('Following', 'success');
+    }
+  } catch (_) {
+    showToast('Failed to update follow status', 'error');
+  }
+  const btn = document.getElementById('btn-follow');
+  if (btn) {
+    btn.classList.toggle('is-following', followState);
+    const label = btn.querySelector('.btn-follow-label');
+    if (label) label.textContent = followState ? 'Following' : 'Follow';
+  }
+}
