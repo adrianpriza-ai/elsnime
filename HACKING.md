@@ -16,14 +16,15 @@ A vanilla JS frontend inside an Android WebView, backed by native Java classes.
 |  - Plyr HTML5 Video Player (HLS via hls.js)                  |
 |  - Downloads tab (js/downloads.js)                           |
 +--------------------------------------------------------------+
-                               │
-           window.AndroidApi   │   window.__androidResponse
-           (JavascriptBridge)  │   (JS evaluation)
-                               ▼
+                                │
+            window.AndroidApi   │   window.__androidResponse
+            (JavascriptBridge)  │   (JS evaluation)
+                                ▼
 +--------------------------------------------------------------+
 |                      NATIVE JAVA BACKEND                     |
 | - MainActivity (Host, AndroidApi bridge, Backend, HistoryDb) |
 | - AniDbScraper (Parsing, Metadata enrichment, API calls)     |
+| - AnikotoScraper (Fallback scraper: AniList + MegaPlay)      |
 | - Downloader (HLS → MP4 download engine, resume)             |
 | - DownloadService (foreground service + progress notif.)     |
 | - CronetTransport (HTTP networking)                          |
@@ -47,6 +48,7 @@ app/src/main/
 └── java/com/elsnime/
     ├── MainActivity.java          # WebView host, AndroidApi bridge, Backend, HistoryDb
     ├── AniDbScraper.java          # scraping, metadata enrichment, stream resolution
+    ├── AnikotoScraper.java        # fallback scraper (AniList + MegaPlay)
     ├── CronetTransport.java       # HttpTransport implementation (Cronet)
     ├── LocalFileServer.java       # loopback HTTP server for playing finished downloads
     ├── Downloader.java            # HLS downloader: stitches segments, remuxes .ts → .mp4, resume
@@ -303,7 +305,16 @@ AniDB encodes `&` as `&amp;` and `'` as `&#039;` in `title` attributes of browse
 
 ### Network Transport Stack
 
+### Network Transport Stack
 Elsnime injects a pluggable `HttpTransport` layer backed by **Google Cronet** (`CronetTransport.java`) instead of Android's standard stack. It uses the stable `CronetEngine.Builder` API (not the deprecated `ExperimentalCronetEngine`) with HTTP/2 enabled, QUIC disabled, and Brotli compression on. The TLS fingerprint matches modern Chrome, so CDN checks on scraping requests pass without flags.
+
+### Fallback Scraper: AnikotoScraper
+When AniDB is unavailable (due to Cloudflare challenges or outages), Elsnime automatically falls back to the `AnikotoScraper` which combines:
+- AniList GraphQL API for search and metadata
+- AnikotoAPI site for recent anime listings
+- MegaPlay embeds for stream resolution
+
+This ensures continuous operation even when the primary AniDB source is temporarily unreachable.
 
 ---
 
@@ -326,7 +337,7 @@ followed(anime_id, anime_title, thumbnail, last_known_eps, anilist_json, followe
 
 ### API Routes
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+|-|-|-|
 | GET | `/api/follows` | List all followed anime |
 | POST | `/api/follow` | Follow an anime (body: anime_id, anime_title, thumbnail, anilist_json) |
 | DELETE | `/api/follow/:id` | Unfollow by anime_id |
