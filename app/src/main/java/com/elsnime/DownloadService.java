@@ -142,6 +142,7 @@ public final class DownloadService extends Service {
 
     /** Drop the foreground notification and stop; optionally leave a transient
      *  completion/failure notification behind first. */
+    @SuppressWarnings("deprecation") // stopForeground(boolean) needed for API < 24
     private void stopSelfAndNotify(String finalText) {
         if (finalText != null && nm != null) {
             Notification n = builder()
@@ -153,10 +154,12 @@ public final class DownloadService extends Service {
                 .build();
             nm.notify(NOTIFICATION_ID + 1, n);
         }
-        stopForeground(true);
+        if (Build.VERSION.SDK_INT >= 24) stopForeground(Service.STOP_FOREGROUND_REMOVE);
+        else stopForeground(true);
         stopSelf();
     }
 
+    @SuppressWarnings("deprecation") // setPriority/PRIORITY_LOW needed for API < 26
     private Notification buildNotification(String text, boolean indeterminate, int pct, String key, String title) {
         Notification.Builder b = builder()
             .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -167,11 +170,12 @@ public final class DownloadService extends Service {
             .setContentIntent(openAppPendingIntent());
         if (indeterminate) b.setProgress(0, 0, true);
         else b.setProgress(100, Math.max(0, Math.min(100, pct)), false);
-        if (key != null) b.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancelPendingIntent(key));
+        if (key != null) b.addAction(new Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancelPendingIntent(key)).build());
         if (Build.VERSION.SDK_INT < 26) b.setPriority(Notification.PRIORITY_LOW);
         return b.build();
     }
 
+    @SuppressWarnings("deprecation") // Notification.Builder(Context) needed for API < 26
     private Notification.Builder builder() {
         return Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
     }

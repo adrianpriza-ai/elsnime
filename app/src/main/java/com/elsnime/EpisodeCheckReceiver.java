@@ -36,12 +36,20 @@ public class EpisodeCheckReceiver extends BroadcastReceiver {
         try {
             MainActivity.HistoryDb db = new MainActivity.HistoryDb(context.getApplicationContext());
             AniDbScraper scraper = new AniDbScraper();
-            scraper.setCache(new AniDbScraper.CacheStore() {
+            // Followed shows found through the Anikoto fallback carry anikoto ids
+            // (anidb.app can't decode them), so route those here as well.
+            AnikotoScraper anikoto = new AnikotoScraper();
+            AniDbScraper.CacheStore store = new AniDbScraper.CacheStore() {
                 public String get(String key) { return db.cacheGet(key); }
                 public void put(String key, String value, long ttl) { db.cachePut(key, value, ttl); }
                 public void clear() { db.cacheClear(); }
                 public void clearPrefix(String p) { db.cacheClearPrefix(p); }
-            });
+            };
+            scraper.setCache(store);
+            anikoto.setCache(store);
+            AniDbScraper.HttpTransport http = CronetTransport.create(context.getApplicationContext());
+            scraper.setTransport(http);
+            anikoto.setTransport(http);
 
             JSONArray follows = db.followed();
             StringBuilder titles = new StringBuilder();
@@ -56,7 +64,8 @@ public class EpisodeCheckReceiver extends BroadcastReceiver {
                 if (aid == null || aid.startsWith("al-")) continue;
                 String lastEps = f.optString("last_known_eps", "0");
                 try {
-                    JSONArray eps = scraper.episodes(aid, "sub");
+                    JSONArray eps = (AnikotoScraper.owns(aid) || AnikotoScraper.ownsNumeric(aid))
+                        ? anikoto.episodes(aid, "sub") : scraper.episodes(aid, "sub");
                     int currentCount = eps.length();
                     int prev = 0;
                     try { prev = Integer.parseInt(lastEps); } catch (Exception ignored) {}
@@ -97,7 +106,9 @@ public class EpisodeCheckReceiver extends BroadcastReceiver {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             builder = new android.app.Notification.Builder(context, CHANNEL_ID);
         } else {
-            builder = new android.app.Notification.Builder(context);
+            @SuppressWarnings("deprecation") // Notification.Builder(Context) needed for API < 26
+            android.app.Notification.Builder legacy = new android.app.Notification.Builder(context);
+            builder = legacy;
         }
         builder.setSmallIcon(R.mipmap.ic_launcher)
                .setContentTitle(title)

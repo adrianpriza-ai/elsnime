@@ -1,5 +1,15 @@
 //  Detail: anime info, episodes, sub/dub control 
+// Bumped on every openAnime so background title resolution (openByTitle,
+// resumeFromHistory, openFollowedAnime) can detect that the user opened a
+// different series while it was running and abandon the stale result.
+let openAnimeToken = 0;
+// True while the episode list shows a static skeleton because the playable
+// AniDB entry is still being resolved in the background (anime.id is null).
+let episodesPending = false;
+
 async function openAnime(anime) {
+  openAnimeToken++;
+  episodesPending = !anime.id;
   S.anime = anime;
   S.translation = S.settings.sub_lang || 'sub';
   const al = anime.anilist || {};
@@ -91,15 +101,63 @@ async function getHistoryMap() {
 async function loadEpisodes() {
   if (!S.anime) return;
   if (!S.anime.id) {
+    if (episodesPending) {
+      // AniDB id still being resolved — show a static skeleton.
+      document.getElementById('eps-grid').innerHTML = episodeSkeletonHTML(6);
+      S.episodes = [];
+      return;
+    }
     document.getElementById('eps-grid').innerHTML = '<div style="color:var(--text-secondary);font-size:14px;padding:20px 0">Episodes not yet available on AniDB.</div>';
     S.episodes = [];
     await renderEpisodes();
     return;
   }
-  document.getElementById('eps-grid').innerHTML = '<div style="color:var(--text-secondary);font-size:14px;padding:20px 0">Loading episodes...</div>';
+  document.getElementById('eps-grid').innerHTML = episodeSkeletonHTML(6);
   const data = await api.get(`/api/episodes?id=${S.anime.id}&type=${S.translation}`).catch(() => ({episodes:[]}));
   S.episodes = data.episodes || [];
   await renderEpisodes();
+}
+
+// Static (no-shimmer) placeholder rows for the episode list while it loads.
+function episodeSkeletonHTML(count) {
+  return Array(count).fill(
+    '<div class="yt-ep-wrap">' +
+    '<div class="yt-ep-row" style="cursor:default">' +
+    '<span class="yt-ep-thumb"></span>' +
+    '<span class="yt-ep-info">' +
+    '<span class="skeleton" style="display:block;width:65%;height:14px;border-radius:4px"></span>' +
+    '<span class="skeleton" style="display:block;width:38%;height:11px;border-radius:4px;margin-top:6px"></span>' +
+    '</span>' +
+    '</div>' +
+    '</div>'
+  ).join('');
+}
+
+// Resolution finished without a playable AniDB entry: swap the episode
+// skeleton for the real empty state so it doesn't sit there forever.
+function stopEpisodeSkeleton() {
+  episodesPending = false;
+  loadEpisodes();
+}
+
+// AniDB resolution failed outright (the lookup came back null / no entry was
+// matched). Swap the episode skeleton for a visible error state instead of a
+// bare "unavailable" line, so a failed open is never silent.
+function showEpisodeError(message) {
+  episodesPending = false;
+  S.episodes = [];
+  const countEl = document.getElementById('ep-count');
+  const playBtn = document.getElementById('btn-play-first');
+  if (countEl) countEl.textContent = '';
+  if (playBtn) playBtn.disabled = true;
+  const grid = document.getElementById('eps-grid');
+  if (!grid) return;
+  grid.innerHTML =
+    '<div class="empty">' +
+    '<div class="empty-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></div>' +
+    '<div style="font-weight:600;color:var(--text-primary)">Could not find this title on AniDB</div>' +
+    `<div class="empty-hint">${message}</div>` +
+    '</div>';
 }
 
 async function renderEpisodes() {

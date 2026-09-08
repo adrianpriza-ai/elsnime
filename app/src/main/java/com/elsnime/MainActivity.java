@@ -138,6 +138,7 @@ public final class MainActivity extends Activity {
     // SYSTEM_UI_FLAG_IMMERSIVE_STICKY combo. The transient behavior is reset
     // to BEHAVIOR_DEFAULT when restoring, so swiping on normal screens shows
     // the bars persistently again.
+    @SuppressWarnings("deprecation") // Legacy SYSTEM_UI_FLAG_* needed for API < 30
     static void applyImmersive(WebView view, boolean on){
         try {
             Activity a = (Activity) view.getContext();
@@ -247,7 +248,8 @@ public final class MainActivity extends Activity {
     }
 
     static final class Backend {
-        final ExecutorService executor=Executors.newCachedThreadPool(); final AniDbScraper scraper=new AniDbScraper(); final HistoryDb db;
+        final ExecutorService executor=Executors.newCachedThreadPool(); final AniDbScraper scraper=new AniDbScraper(); final AnikotoScraper anikoto=new AnikotoScraper(); final HistoryDb db;
+        private volatile String source="anidb";
         // The Downloader is process-wide (static): it survives an activity
         // destroy mid-download (e.g. swipe-away + reopen), and DownloadService
         // keeps referencing the same instance to mirror progress in the
@@ -265,15 +267,21 @@ public final class MainActivity extends Activity {
         private final java.util.concurrent.ScheduledExecutorService progressTimer=java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
         private volatile boolean progressFlushScheduled=false;
         private final android.content.Context appContext;
-        Backend(Context c){appContext=c.getApplicationContext();db=new HistoryDb(appContext);scraper.setCache(new AniDbScraper.CacheStore(){
+        Backend(Context c){appContext=c.getApplicationContext();db=new HistoryDb(appContext);try{source=normalizeSource(db.settings().optString("source","anidb"));}catch(Exception ignored){}AniDbScraper.CacheStore store=new AniDbScraper.CacheStore(){
             public String get(String key){return db.cacheGet(key);}
             public void put(String key,String value,long ttl){db.cachePut(key,value,ttl);}
             public void clear(){db.cacheClear();}
             public void clearPrefix(String prefix){db.cacheClearPrefix(prefix);}
-        });scraper.setTransport(CronetTransport.create(appContext));
+        };
+        // The AnikotoScraper is the fail-over provider: it shares the same
+        // SQLite cache and Cronet transport so both present an identical
+        // fingerprint and stay warm/cold together.
+        scraper.setCache(store);anikoto.setCache(store);
+        AniDbScraper.HttpTransport http=CronetTransport.create(appContext);scraper.setTransport(http);anikoto.setTransport(http);
         // Downloader pushes raw JSON events; AndroidApi forwards them to the page.
-        if(sharedDownloader==null)sharedDownloader=new Downloader(appContext,scraper,ev->{java.util.function.Consumer<JSONObject> l=downloadListener;if(l!=null)l.accept(ev);});
+        if(sharedDownloader==null)sharedDownloader=new Downloader(appContext,scraper,anikoto,ev->{java.util.function.Consumer<JSONObject> l=downloadListener;if(l!=null)l.accept(ev);});
         downloader=sharedDownloader;
+        downloader.setSource(source);
         DownloadService.attach(downloader);
         // Resumed downloads (survived a process death) also need the foreground
         // service, or the process could be killed again mid-resume.
@@ -368,7 +376,7 @@ public final class MainActivity extends Activity {
         String playInMpv(String animeId,String animeTitle,String episode,String type,String referer,String userAgent){
             JSONObject out=new JSONObject();
             try{
-                JSONObject stream=scraper.stream(animeId,episode,type);
+                JSONObject stream=streamResult(animeId,episode,type);
                 String url=stream.optString("url");
                 // The stream result carries the embed page the manifest was fetched
                 // from — mpv must present it (plus the browser UA) to load the CDN.
@@ -474,13 +482,52 @@ public final class MainActivity extends Activity {
         }
         void refreshCache(String prefixes){
             if(prefixes==null||prefixes.trim().isEmpty())return;
-            if("all".equals(prefixes.trim())){scraper.clearCache();return;}
+            if("all".equals(prefixes.trim())){scraper.clearCache();anikoto.clearCache();return;}
             for(String p:prefixes.split(",")){p=p.trim();if(!p.isEmpty())scraper.clearCachePrefix(p);}
+            // Drop the matching Anikoto entries too (anidb search keys are the
+            // prefix the pull-to-refresh knows; the fallback cache lives under
+            // ak-* and would otherwise pin stale results for its TTL).
+            for(String p:prefixes.split(",")){p=p.trim();if(p.equals("anidb-search|"))anikoto.clearCachePrefix("ak-search|");else if(p.equals("anidb-episodes|"))anikoto.clearCachePrefix("ak-series|");}
+        }
+        // Search with anidb.app first; when it is down (Cloudflare/network) or
+        // answers with nothing, fall back to the Anikoto provider so search
+        // keeps working (AniList-backed, so coverage overlaps and extends).
+        // Anidb errors are never cached, so a healthy anidb.app stays the
+        // primary source and the fallback only shows its results when the
+        // primary came up empty.
+        private static String normalizeSource(String value){return "anikoto".equalsIgnoreCase(value)?"anikoto":"anidb";}
+        private boolean usesAnikoto(){return "anikoto".equals(source);}
+        JSONArray searchResults(String query,String type)throws Exception{
+            if(usesAnikoto())return anikoto.search(query,type);
+            try{
+                JSONArray primary=scraper.search(query,type);
+                if(primary.length()>0)return primary;
+                try{JSONArray fb=anikoto.search(query,type);if(fb.length()>0)return fb;}catch(Exception ignored){}
+                return primary;
+            }catch(Exception first){
+                try{JSONArray fb=anikoto.search(query,type);if(fb.length()>0)return fb;}catch(Exception ignored){}
+                throw first;
+            }
+        }
+        // Episodes/streams for ids this app minted (anikoto:… or bare anikoto
+        // series numbers) go straight to the Anikoto provider; everything else
+        // (anidb slug ids, incl. history/follows from before the fallback)
+        // stays on AniDbScraper.
+        JSONArray episodesResults(String id,String type)throws Exception{
+            if(usesAnikoto())return anikoto.episodes(id,type);
+            if(AnikotoScraper.owns(id)||AnikotoScraper.ownsNumeric(id))return anikoto.episodes(id,type);
+            return scraper.episodes(id,type);
+        }
+        JSONObject streamResult(String id,String episode,String type)throws Exception{
+            if(usesAnikoto())return anikoto.stream(id,episode,type);
+            if(AnikotoScraper.owns(id)||AnikotoScraper.ownsNumeric(id))return anikoto.stream(id,episode,type);
+            return scraper.stream(id,episode,type);
         }
         String handle(String method,String rawPath,String body){try{UriParts p=new UriParts(rawPath); String path=p.path;
-            if(method.equals("GET")&&path.equals("/api/search"))return p.q("tag").isEmpty()?scraper.search(p.q("q"),p.q("type","sub")).toString():scraper.searchTag(p.q("tag")).toString();
-            if(method.equals("GET")&&path.equals("/api/episodes"))return new JSONObject().put("episodes",scraper.episodes(p.q("id"),p.q("type","sub"))).toString();
-            if(method.equals("GET")&&path.equals("/api/stream"))return scraper.stream(p.q("id"),p.q("episode"),p.q("type","sub")).toString();
+            if(method.equals("GET")&&path.equals("/api/search"))return p.q("tag").isEmpty()?searchResults(p.q("q"),p.q("type","sub")).toString():scraper.searchTag(p.q("tag")).toString();
+            if(method.equals("GET")&&path.equals("/api/browse"))return scraper.searchTags(p.q("tags").split(","),p.q("q"),p.q("sort"),p.pInt("page",1),p.q("adult").equals("on")).toString();
+            if(method.equals("GET")&&path.equals("/api/episodes"))return new JSONObject().put("episodes",episodesResults(p.q("id"),p.q("type","sub"))).toString();
+            if(method.equals("GET")&&path.equals("/api/stream"))return streamResult(p.q("id"),p.q("episode"),p.q("type","sub")).toString();
             if(method.equals("GET")&&path.equals("/api/trending"))return scraper.trending().toString();
             if(method.equals("GET")&&path.equals("/api/popular"))return scraper.trending().toString();
             if(method.equals("GET")&&path.equals("/api/anime"))return scraper.anime(p.q("id"),p.q("type","sub")).toString();
@@ -499,7 +546,7 @@ public final class MainActivity extends Activity {
             if(path.startsWith("/api/history/")&&method.equals("DELETE")){db.delete(Integer.parseInt(path.substring(13)));return ok();}
             if(path.equals("/api/watched")&&method.equals("POST")){db.markWatchedUpto(new JSONObject(body));return ok();}
             if(path.equals("/api/settings")&&method.equals("GET"))return db.settings().toString();
-            if(path.equals("/api/settings")&&method.equals("POST")){db.settings(new JSONObject(body));return ok();}
+            if(path.equals("/api/settings")&&method.equals("POST")){JSONObject settings=new JSONObject(body);if(settings.has("source")){source=normalizeSource(settings.optString("source"));downloader.setSource(source);settings.put("source",source);}db.settings(settings);return ok();}
             // Followed anime (save-for-later + episode notifications)
             if(method.equals("GET")&&path.equals("/api/follows"))return db.followed().toString();
             if(method.equals("POST")&&path.equals("/api/follow")){JSONObject fb=new JSONObject(body);db.follow(fb.optString("anime_id"),fb.optString("anime_title"),fb.optString("thumbnail"),fb.optString("anilist_json","{}"));return ok();}
@@ -511,7 +558,7 @@ public final class MainActivity extends Activity {
 
     }
 
-    static final class UriParts { final String path; final String query; UriParts(String raw){int i=raw.indexOf('?');path=i<0?raw:raw.substring(0,i);query=i<0?"":raw.substring(i+1);} String q(String key){return q(key,"");} String q(String key,String fallback){for(String pair:query.split("&")){String[] x=pair.split("=",2);if(x.length==2&&x[0].equals(key))try{return java.net.URLDecoder.decode(x[1],"UTF-8");}catch(Exception ignored){}}return fallback;} }
+    static final class UriParts { final String path; final String query; UriParts(String raw){int i=raw.indexOf('?');path=i<0?raw:raw.substring(0,i);query=i<0?"":raw.substring(i+1);} String q(String key){return q(key,"");} String q(String key,String fallback){for(String pair:query.split("&")){String[] x=pair.split("=",2);if(x.length==2&&x[0].equals(key))try{return java.net.URLDecoder.decode(x[1],"UTF-8");}catch(Exception ignored){}}return fallback;} int pInt(String key,int fallback){try{return Integer.parseInt(q(key,String.valueOf(fallback)));}catch(Exception ignored){return fallback;}} }
 
     static final class HistoryDb extends SQLiteOpenHelper {
         private static final int MAX_CACHE_ENTRIES = 250;
@@ -629,7 +676,7 @@ public final class MainActivity extends Activity {
                 d.setTransactionSuccessful();
             }finally{d.endTransaction();}
         }
-        JSONObject settings() throws Exception{JSONObject o=new JSONObject().put("hw_accel",false).put("sub_lang","sub").put("player","web").put("theme","auto").put("aniskip","on").put("performance_mode","auto").put("accent_h",239).put("quality","480").put("separate_quality","off").put("stream_quality","480").put("download_quality","480");try(Cursor c=getReadableDatabase().query("settings",new String[]{"key","value"},null,null,null,null,null)){while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);try{o.put(k,new JSONTokener(v).nextValue());}catch(Exception ignored){}}}return o;}
+        JSONObject settings() throws Exception{JSONObject o=new JSONObject().put("hw_accel",false).put("source","anidb").put("sub_lang","sub").put("player","web").put("theme","auto").put("aniskip","on").put("performance_mode","auto").put("accent_h",239).put("quality","480").put("separate_quality","off").put("stream_quality","480").put("download_quality","480");try(Cursor c=getReadableDatabase().query("settings",new String[]{"key","value"},null,null,null,null,null)){while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);try{o.put(k,new JSONTokener(v).nextValue());}catch(Exception ignored){}}}return o;}
         void settings(JSONObject x){
             SQLiteDatabase d=getWritableDatabase();
             JSONArray names=x.names();

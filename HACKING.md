@@ -1,6 +1,6 @@
 # Elsnime Developer & Hacking Guide
 
-Elsnime's internals: architecture, project layout, JS-to-Java bridge, download engine, platform integration, and caching.
+Elsnime internals: architecture, project layout, JS-to-Java bridge, download engine, platform integration, and caching.
 
 ---
 
@@ -54,7 +54,7 @@ app/src/main/
 ```
 
 The `.ts → .mp4` remux uses the **media3 muxer** (`androidx.media3:media3-muxer`) — a
-pure-Java MP4 writer. The system `MediaMuxer` is never used (see step 4 below).
+pure-Java MP4 writer. The system `MediaMuxer` is never used (see below).
 
 ### Frontend modules (`assets/js/`)
 
@@ -88,7 +88,7 @@ Communication is asynchronous; scraping, DB accesses, and downloads run on backg
 
 ### 1. Frontend-to-Backend (`AndroidApi.request`)
 
-Frontend API calls use the `androidRequest()` utility in `js/core.js`. Inside the app, `window.AndroidApi` is injected; in a browser it falls back to a `fetch` loop.
+Frontend API calls use the `androidRequest()` helper in `js/core.js`. Inside the app, `window.AndroidApi` is injected; in a browser it falls back to a `fetch` loop.
 
 ```javascript
 let androidRequestId = 0;
@@ -133,7 +133,7 @@ All methods are `@JavascriptInterface` on the inner `AndroidApi` class in `MainA
 
 | Method | Args | Purpose |
 |-|-|-|
-| `request` | `id, method, path, body` | Generic API: scraping, search, metadata, DB ops |
+| `androidRequest` | `id, method, path, body` | Generic API: scraping, search, metadata, DB ops |
 | `readAsset` | `path` | **Synchronous** (no `id`/callback): read a bundled `assets/` file, used by `ui-loader.js` for the `views/*.html` partials (WebView `fetch()` on `file://` is CORS-blocked) |
 | `systemTheme` | — | Real device theme (WebView's `prefers-color-scheme` is unreliable) |
 | `setFullscreen` | `on` | Immersive bars + landscape rotation for player fullscreen |
@@ -182,7 +182,7 @@ Every active task also writes a **durable record** to SharedPreferences (`downlo
 
 ### Event states & disk reconciliation
 
-States: `resolving` → `downloading` → `remuxing` → `done` (with stored file name + size), or `error (msg)` / `cancelled`. The `done` event's `fileName` flips episode icons to ✓ and persists the queue in `localStorage`.
+States: `resolving` → `downloading` → `remuxing` → `done` (with stored filename + size), or `error (msg)` / `cancelled`. The `done` event's `fileName` flips episode icons to ✓ and persists the queue in localStorage.
 
 `listDownloads()` queries MediaStore (API 29+) or the direct path (≤28) so the Downloads tab reflects what's on disk — stale queue entries left by a killed process are cleaned up on boot (via `activeDownloads()`, resumed downloads are kept live instead of being marked interrupted). `deleteAll()` cancels active tasks, clears every persisted resume record, and sweeps every entry under `Movies/Elsnime`.
 
@@ -214,7 +214,7 @@ Reopening an episode resumes from the saved position. `startWebPlayer` reads the
 
 CDN-gated streams need the same fingerprint the scraper used:
 
-- **User-Agent**: `MainActivity` sets the WebView's global UA to `AniDbScraper.UA`, so hls.js XHR requests carry the matching UA (JS can't override the UA on XHR — forbidden header).
+- **User-Agent**: `MainActivity` sets the WebView UA to `AniDbScraper.UA`, so hls.js XHR requests carry the matching UA (JS can't override the UA on XHR — forbidden header).
 - **Referer**: stamped per-request in hls.js's `xhrSetup` config.
 
 On fatal hls.js errors, `hlsFatalMessage()` maps failures to specific messages:
@@ -297,6 +297,55 @@ The backend scraping layer is in `AniDbScraper.java`.
 
 The scraper parses AniDB's HTML directly. A response containing `"Just a moment"` throws an `IOException` — `"AniDB blocked this request (Cloudflare challenge). Try again in a moment."` — which the JS layer catches and surfaces to the user.
 
+### HTML Entity Decoding
+
+AniDB encodes `&` as `&amp;` and `'` as `&#039;` in `title` attributes of browse results. The `html()` helper decodes these before the title is returned to the frontend. Without this, titles like "Me & Roboco" render as "Me &amp; Roboco".
+
 ### Network Transport Stack
 
-Elsnime injects a pluggable `HttpTransport` layer backed by **Google Cronet** (`CronetTransport.java`) instead of Android's standard stack. It provides a consistent TLS fingerprint matching modern Chrome (avoiding CDN flags on scraping requests), plus connection pooling and HTTP/3 support when resolving streams.
+Elsnime injects a pluggable `HttpTransport` layer backed by **Google Cronet** (`CronetTransport.java`) instead of Android's standard stack. It uses the stable `CronetEngine.Builder` API (not the deprecated `ExperimentalCronetEngine`) with HTTP/2 enabled, QUIC disabled, and Brotli compression on. The TLS fingerprint matches modern Chrome, so CDN checks on scraping requests pass without flags.
+
+---
+
+## Follow System & Episode Notifications
+
+Elsnime includes a full follow system that tracks favorite anime and notifies users when new episodes are released.
+
+### Database Schema
+A new `followed` table in SQLite stores followed anime:
+```
+followed(anime_id, anime_title, thumbnail, last_known_eps, anilist_json, followed_at)
+```
+
+### CRUD Methods (HistoryDb)
+- `follow(animeId, title, thumb, aniJson)` — Insert a followed anime
+- `unfollow(animeId)` — Remove from follows
+- `isFollowed(animeId)` — Check follow status
+- `followed()` — List all followed anime
+- `updateFollowEps(animeId, eps)` — Update last known episode count
+
+### API Routes
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/follows` | List all followed anime |
+| POST | `/api/follow` | Follow an anime (body: anime_id, anime_title, thumbnail, anilist_json) |
+| DELETE | `/api/follow/:id` | Unfollow by anime_id |
+| GET | `/api/follow-status?anime_id=X` | Check if anime is followed |
+
+### Background Check (EpisodeCheckReceiver)
+- `BroadcastReceiver` registered in `AndroidManifest.xml`
+- `AlarmManager` schedules repeating 12-hour check starting from app launch
+- Creates notification channel automatically (Android 8+)
+- Shows grouped notification with count and anime titles
+
+### Frontend Integration
+- **Detail Page**: New "Follow" button with bell icon next to "Save for later"
+- **You/Library Page**: New "Following" shortcut in the library hub
+- Renders followed anime as a grid with episode counts
+- Tap to open detail, X button to unfollow
+
+### Technical Implementation Notes
+- Uses Android built-in `AlarmManager`, `BroadcastManager`, and `NotificationManager`
+- No WorkManager needed because AlarmManager + BroadcastReceiver is lighter and sufficient for 12-hour checks
+- AniList GraphQL powers external data (popular, upcoming, new episodes) via existing integration in `AniDbScraper`
+- Home page loads all 5 sections from one `/api/home` call instead of 5 separate requests

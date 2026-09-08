@@ -8,7 +8,7 @@ import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.regex.*;
 
-/** AniDB-backed port of ani-cli.1's search, episode, and HLS playback flow. */
+/** AniDB-backed port of ani-cli v5.0.4's (ani-cli.4) search, episode, and HLS playback flow. */
 public final class AniDbScraper {
     private static final String ANIDB = "https://anidb.app";
     private static final String JIKAN = "https://api.jikan.moe/v4";
@@ -25,7 +25,16 @@ public final class AniDbScraper {
     public void clearCachePrefix(String prefix){CacheStore c=cache;if(c!=null)c.clearPrefix(prefix);}
 
     /** Pluggable HTTP layer so the app can swap in Cronet (Chrome TLS fingerprint) while the default stays plain HttpURLConnection. */
-    public interface HttpTransport { String request(String method,String url,String body,String referer,String origin)throws IOException; }
+    public interface HttpTransport {
+        String request(String method,String url,String body,String referer,String origin)throws IOException;
+        /** request() plus caller-supplied extra headers layered over the default
+         *  fingerprint set — e.g. megaplay's getSources endpoint only answers
+         *  AJAX-style calls (X-Requested-With: XMLHttpRequest). Implementations
+         *  that don't need extras keep the default behaviour. */
+        default String request(String method,String url,String body,String referer,String origin,Map<String,String> extra)throws IOException{
+            return request(method,url,body,referer,origin);
+        }
+    }
     private volatile HttpTransport transport=HttpUrlConnectionTransport.INSTANCE;
     public void setTransport(HttpTransport t){if(t!=null)transport=t;}
 
@@ -50,8 +59,7 @@ public final class AniDbScraper {
     }
 
     private JSONArray aniDbSearch(String query) throws Exception {
-        String page=get(ANIDB+"/browse?q="+URLEncoder.encode(query,"UTF-8"),ANIDB,ANIDB);
-        rejectCloudflare(page);
+        String page=anidbGet(ANIDB+"/browse?q="+URLEncoder.encode(query,"UTF-8"));
         // Some pages embed the markup JSON-escaped (\"); normalize so one pattern fits.
         page=page.replace("\\\"","\"");
         JSONArray out=new JSONArray(); Set<String> seen=new HashSet<>();
@@ -92,7 +100,7 @@ public final class AniDbScraper {
 
     public JSONArray episodes(String animeId,String ignoredMode) throws Exception {
         return cachedArray("anidb-episodes|"+animeId,TTL_HOUR,()->{
-            JSONObject root=json(get(ANIDB+"/api/frontend/anime/"+numericId(animeId)+"/episodes",ANIDB,ANIDB));
+            JSONObject root=json(anidbGet(ANIDB+"/api/frontend/anime/"+numericId(animeId)+"/episodes"));
             List<String> list=new ArrayList<>(); collectEpisodeNumbers(root,list);
             Set<String> unique=new LinkedHashSet<>(list); list=new ArrayList<>(unique);
             list.sort(Comparator.comparingDouble(AniDbScraper::number));
@@ -101,7 +109,12 @@ public final class AniDbScraper {
     }
 
     public JSONObject stream(String animeId,String episode,String mode) throws Exception {
-        JSONObject episodes=json(get(ANIDB+"/api/frontend/anime/"+numericId(animeId)+"/episodes",ANIDB,ANIDB));
+        JSONObject episodes=json(anidbGet(ANIDB+"/api/frontend/anime/"+numericId(animeId)+"/episodes"));
+        // v5.0.3: episode "0" maps to the first episode (specials boundary)
+        if("0".equals(episode)){
+            List<String> nums=new ArrayList<>(); collectEpisodeNumbers(episodes,nums);
+            if(!nums.isEmpty())episode=nums.get(0);
+        }
         String episodeId=findEpisodeId(episodes,episode);
         if(episodeId.isEmpty())return error("Episode not found");
         String languages=get(ANIDB+"/api/frontend/episode/"+episodeId+"/languages",ANIDB,ANIDB);
@@ -171,33 +184,54 @@ public final class AniDbScraper {
     }
 
     public JSONArray searchTag(String tag) throws Exception {
-        return cachedArray("tag|"+tag,TTL_DAY,()->{
-            // AniList genres are a fixed short list (Action, Romance, ...);
-            // most other tags (Boys Love, Yuri, Yaoi, ...) only exist on MAL
-            // or in AniList's tag taxonomy. Try each source in turn: exact
-            // AniList genre, then the authoritative MAL genre list (which is
-            // what the chips are built from), then AniList's exact tag filter
-            // as a fallback for when MAL/Jikan is unreachable.
-            JSONArray media=anilistTagPage("genre",tag);
-            // MAL-only genres with a close AniList equivalent (MAL's Suspense
-            // is AniList's Thriller) fall back to that genre so they keep
-            // working even while Jikan/MAL is unreachable.
-            String alias=anilistGenreAlias(tag);
-            if((media==null||media.length()==0)&&!normalize(alias).equals(normalize(tag)))
-                media=anilistTagPage("genre",alias);
-            if(media==null||media.length()==0)media=malGenreSearch(tag);
-            if(media==null||media.length()==0)media=anilistTagPage("tag_in",anilistTagName(tag));
+        JSONObject r=searchTags(new String[]{tag},"",sort("POPULARITY_DESC"),1,false);
+        return r!=null?r.optJSONArray("results"):new JSONArray();
+    }
+    /** Tag search, upgraded: one AniList query that ANDs every selected tag,
+     *  optional text query, sort, and page, with mature content filtered at the
+     *  query level (isAdult:false) so the reported count equals the visible
+     *  count — a page can never come back half-empty. Tags are resolved
+     *  against AniList's live taxonomy (cached) before the query, so MAL-only
+     *  tags route through the MAL fallback instead of an empty tier. */
+    public JSONObject searchTags(String[] tags,String query,String sort,int page,boolean adult) throws Exception {
+        return cachedObject("browse|"+(tags==null?"":String.join(",",tags))+"|"+query+"|"+sort+"|"+page+"|"+adult,TTL_DAY,()->{
+            // Split the user's tags into AniList genres vs AniList tags (both
+            // ANDed in a single query). Anything matching neither is MAL-only
+            // (Avant Garde, Gourmet, CGDCT, ...) and served by Jikan.
+            List<String> genres=new ArrayList<>(),alTags=new ArrayList<>(),mal=new ArrayList<>();
+            JSONObject resolved=anilistTaxonomy();
+            for(String raw:tags){
+                if(raw==null||raw.trim().isEmpty())continue;
+                String key=normalize(raw);
+                String hit=resolved.has(key)?resolved.getString(key):null;
+                if(hit==null){String alias=normalize(anilistGenreAlias(raw));hit=resolved.has(alias)?resolved.getString(alias):null;}
+                if(hit!=null){
+                    if(anilistGenres.contains(hit))genres.add(hit);
+                    else alTags.add(hit);
+                }else mal.add(raw);
+            }
+            JSONArray media=null;
+            if(genres.size()>0||alTags.size()>0||query.length()>0){
+                media=anilistTagQuery(genres,alTags,query,sort,page,adult);
+            }
+            // Merge MAL-only tags into the same page so the row has no gaps.
+            if(media==null||media.length()<PER_PAGE){
+                JSONArray j=malMultiTag(mal,page);
+                if(j!=null&&j.length()>0)media=merge(media==null?new JSONArray():media,j);
+            }
             JSONArray out=new JSONArray();
-            if(media!=null)for(int i=0;i<media.length();i++){
-                JSONObject item=media.optJSONObject(i);if(item==null)continue;
+            if(media!=null)for(int k=0;k<media.length();k++){
+                JSONObject item=media.optJSONObject(k);if(item==null)continue;
                 // MAL fallback items are already normalized search results.
                 if(item.has("anilist")){out.put(item);continue;}
-                JSONObject t=item.optJSONObject("title");String title=t==null?"":t.optString("english",t.optString("romaji"));
+                JSONObject t=item.optJSONObject("title");String title=(t==null)?"":t.optString("english",t.optString("romaji"));
                 out.put(new JSONObject().put("id",JSONObject.NULL).put("title",title).put("thumbnail",item.optJSONObject("coverImage").optString("large")).put("score",item.opt("averageScore")).put("anilist",item));
             }
-            return out;
+            JSONObject paging=new JSONObject().put("results",out).put("page",page).put("perPage",PER_PAGE).put("hasNext",media!=null&&media.length()>=PER_PAGE);
+            return paging;
         });
     }
+
 
     /** Map a MAL-only genre to the closest AniList genre. MAL calls it
      *  Suspense; AniList's fixed genre list calls it Thriller. Names with no
@@ -213,26 +247,81 @@ public final class AniDbScraper {
     /** Map a user-facing genre name to the exact AniList tag name. MAL renamed
      *  Yaoi/Yuri to Boys Love/Girls Love in 2021 and AniList spells the BL tag
      *  with an apostrophe, so the chip name alone never matches its taxonomy. */
-    private static String anilistTagName(String tag){
-        switch(normalize(tag)){
-            case "boys love":case "shounen ai":case "yaoi":return "Boys' Love";
-            case "girls love":case "shoujo ai":case "yuri":return "Yuri";
-            default:return tag;
-        }
-    }
-
-    /** One page of AniList media filtered by exact genre or by tag name
-     *  (tag_in is exact; the plain tag argument is fuzzy). Returns the raw
-     *  media array, or null if the request failed. */
-    private JSONArray anilistTagPage(String filter,String value)throws Exception{
-        boolean isTag="tag_in".equals(filter);
+    /** One page of AniList media filtered by ANDed genres, ANDed tags, an
+     *  optional title search, a sort, and a page number. Returns the raw media
+     *  array, or null if the request failed. Mature content is excluded at the
+     *  query level when the caller asks for it. */
+    private JSONArray anilistTagQuery(List<String> genres,List<String> alTags,String query,String sort,int page,boolean adult) throws Exception {
+        boolean isTag=alTags.size()>0;
         String fields="id idMal format isAdult synonyms title{romaji english native} coverImage{large extraLarge} bannerImage averageScore episodes status seasonYear description(asHtml:false) genres";
         String gql=isTag
-            ?"query($v:[String]){Page(page:1,perPage:24){media(type:ANIME,tag_in:$v,sort:POPULARITY_DESC){"+fields+"}}}"
-            :"query($v:String){Page(page:1,perPage:24){media(type:ANIME,genre:$v,sort:POPULARITY_DESC){"+fields+"}}}";
-        JSONObject vars=isTag?new JSONObject().put("v",new JSONArray().put(value)):new JSONObject().put("v",value);
-        JSONObject page=postJson(ANILIST,new JSONObject().put("query",gql).put("variables",vars)).optJSONObject("data");
-        return page==null?null:page.optJSONObject("Page").optJSONArray("media");
+            ?"query($g:[String],$t:[String],$q:String,$s:[MediaSort],$p:Int){Page(page:$p,perPage:24){media(type:ANIME,genre_in:$g,tag_in:$t,search:$q,sort:$s,isAdult:false){"+fields+"}}}"
+            :"query($g:[String],$q:String,$s:[MediaSort],$p:Int){Page(page:$p,perPage:24){media(type:ANIME,genre_in:$g,search:$q,sort:$s,isAdult:false){"+fields+"}}}";
+        JSONObject vars=new JSONObject();
+        vars.put("g",new JSONArray(genres));
+        if(isTag)vars.put("t",new JSONArray(alTags));
+        vars.put("q",query.length()>0?query:JSONObject.NULL);
+        vars.put("s",new JSONArray().put(sort));
+        vars.put("p",page);
+        JSONObject pageObj=postJson(ANILIST,new JSONObject().put("query",gql).put("variables",vars)).optJSONObject("data");
+        return pageObj==null?null:pageObj.optJSONObject("Page").optJSONArray("media");
+    }
+
+    /** AniList's genre + tag taxonomy, cached: a normalized user name ->
+     *  exact AniList name. Fetched once per day so MAL-only tags can be
+     *  routed to the MAL fallback rather than an empty tier. */
+    private static final Set<String> anilistGenres=new HashSet<>(Arrays.asList(
+        "Action","Adventure","Comedy","Drama","Ecchi","Fantasy","Hentai","Horror",
+        "Mahou Shoujo","Mecha","Music","Mystery","Psychological","Romance","Sci-Fi",
+        "Slice of Life","Sports","Supernatural","Thriller"));
+    private JSONObject anilistTaxonomy() throws Exception {
+        return cachedObject("al-taxonomy",TTL_DAY,()->{
+            JSONObject out=new JSONObject();
+            String gql="{GenreCollection MediaTagCollection{name category}}";
+            JSONObject root=postJson(ANILIST,new JSONObject().put("query",gql)).optJSONObject("data");
+            if(root!=null){
+                JSONArray ga=root.optJSONArray("GenreCollection");
+                if(ga!=null)for(int i=0;i<ga.length();i++)out.put(normalize(ga.getString(i)),ga.getString(i));
+                JSONArray ta=root.optJSONArray("MediaTagCollection");
+                if(ta!=null)for(int i=0;i<ta.length();i++){JSONObject t=ta.optJSONObject(i);if(t!=null)out.put(normalize(t.getString("name")),t.getString("name"));}
+            }
+            return out;
+        });
+    }
+    /** MAL-only tags (Avant Garde, Gourmet, CGDCT, ...): fetch through Jikan and
+     *  intersect by genre id so AND semantics hold. Returns null (never
+     *  throws) when Jikan is unavailable or a tag has no MAL genre. */
+    private JSONArray malMultiTag(List<String> tags,int page) throws Exception {
+        try{
+            JSONArray tags2=tags();
+            List<Integer> ids=new ArrayList<>();
+            for(String name:tags){
+                for(int i=0;i<tags2.length();i++){JSONObject t=tags2.optJSONObject(i);if(t!=null&&name!=null&&name.equalsIgnoreCase(t.getString("name"))){ids.add(t.getInt("mal_id"));break;}}
+            }
+            if(ids.isEmpty())return null;
+            StringBuilder g=new StringBuilder();
+            for(int i=0;i<ids.size();i++){if(i>0)g.append(",");g.append(ids.get(i));}
+            JSONArray data=jikan("/anime?genres="+g.toString()+"&page="+page+"&order_by=members&sort=desc&sfw=false").optJSONArray("data");
+            JSONArray out=new JSONArray();if(data!=null)for(int i=0;i<data.length();i++){JSONObject e=data.optJSONObject(i);if(e!=null)out.put(normalizeJikan(e));}
+            return out.length()==0?null:out;
+        }catch(Exception e){return null;}
+    }
+    private JSONArray merge(JSONArray a,JSONArray b) throws Exception {
+        JSONArray out=new JSONArray();
+        Set<String> seen=new HashSet<>();
+        for(int i=0;i<a.length();i++){String k=String.valueOf(a.opt(i));if(seen.add(k))out.put(a.opt(i));}
+        for(int i=0;i<b.length();i++){String k=String.valueOf(b.opt(i));if(seen.add(k))out.put(b.opt(i));}
+        return out;
+    }
+    private static final int PER_PAGE=24;
+    private static String sort(String key){
+        switch(key==null?"":key){
+            case "score":return "SCORE_DESC";
+            case "score_asc":return "SCORE_ASC";
+            case "newest":return "START_DATE_DESC";
+            case "title":return "TITLE_ENGLISH_ASC";
+            default:return "POPULARITY_DESC";
+        }
     }
 
     /** MAL-only genre fallback (Avant Garde, Award Winning, Gourmet, ...):
@@ -312,6 +401,20 @@ public final class AniDbScraper {
             if(!rm.find())continue;
             Matcher um=Pattern.compile("https?://[^\\s#\\\"]+").matcher(part);
             String uri=um.find()?um.group():null;
+            if(uri==null){
+                // The transports return manifests with every \r\n stripped, so a
+                // relative variant URI is glued onto the STREAM-INF line
+                // (e.g. NAME="720p"index-f1.m3u8). Recover it by looking for the
+                // trailing attribute the URI follows, rather than relying on the
+                // whitespace split that works only for untouched manifests.
+                Matcher vm=Pattern.compile("(?:NAME=\"[^\"]*\"|RESOLUTION=\\d+x\\d+|BANDWIDTH=\\d+)\\s*([^\\s#\"\\\\]+)$").matcher(part.trim());
+                if(vm.find()){
+                    String candidate=vm.group(1);
+                    // A mis-segment leaves attribute glue (commas/equals) in the
+                    // "URI" — only accept a clean trailing token.
+                    if(candidate.indexOf('=')<0&&candidate.indexOf(',')<0)uri=candidate;
+                }
+            }
             if(uri==null){String[] toks=part.trim().split("\\s+");if(toks.length>0)uri=toks[toks.length-1];}
             if(uri==null||uri.isEmpty())continue;
             links.add(new String[]{rm.group(1),absoluteUrl(master,uri)});
@@ -353,6 +456,15 @@ public final class AniDbScraper {
         if(c!=null&&!value.has("error"))c.put(key,value.toString(),ttl);return value;}
     private JSONObject postJson(String url,JSONObject body)throws Exception{return json(request("POST",url,body.toString(),ANIDB,ANIDB));}
     private String get(String url,String referer,String origin)throws Exception{return request("GET",url,null,referer,origin);}
+    /** GET an anidb.app URL and fail fast on an empty body, mirroring ani-cli
+     *  v5.0.4's anidb_curl status check and the empty-response guards in
+     *  anidb_search/anidb_episodes ("Connection error: no response from $base_api"). */
+    private String anidbGet(String url) throws Exception {
+        String body=get(url,ANIDB,ANIDB);
+        rejectCloudflare(body);
+        if(body.isEmpty())throw new IOException("Connection error: no response from "+ANIDB);
+        return body;
+    }
     private String request(String method,String url,String body,String referer,String origin)throws Exception{
         IOException lastChallenge=null;
         for(int attempt=0;attempt<3;attempt++){
@@ -372,6 +484,10 @@ public final class AniDbScraper {
         public static final HttpUrlConnectionTransport INSTANCE=new HttpUrlConnectionTransport();
         @Override
         public String request(String method,String url,String body,String referer,String origin)throws IOException{
+            return request(method,url,body,referer,origin,null);
+        }
+        @Override
+        public String request(String method,String url,String body,String referer,String origin,Map<String,String> extra)throws IOException{
             HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
             c.setRequestMethod(method);
             c.setConnectTimeout(12000);c.setReadTimeout(15000);
@@ -380,11 +496,12 @@ public final class AniDbScraper {
             c.setRequestProperty("Accept-Language","en-US,en;q=0.9");
             c.setRequestProperty("Referer",referer);
             if(origin!=null)c.setRequestProperty("Origin",origin);
+            if(extra!=null)for(Map.Entry<String,String> e:extra.entrySet())c.setRequestProperty(e.getKey(),e.getValue());
             if(body!=null){c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");try(OutputStream o=c.getOutputStream()){o.write(body.getBytes(StandardCharsets.UTF_8));}}
             int code=c.getResponseCode();
             InputStream in=code>=400?c.getErrorStream():c.getInputStream();
-            if(in==null)throw new IOException("HTTP "+code);
-            try(BufferedReader r=new BufferedReader(new InputStreamReader(in,StandardCharsets.UTF_8))){StringBuilder out=new StringBuilder();String line;while((line=r.readLine())!=null)out.append(line);String result=out.toString();rejectCloudflare(result);if(code>=400)throw new IOException("HTTP "+code);return result;}
+            if(in==null)throw new IOException("Request failed: HTTP "+code+" from "+url);
+            try(BufferedReader r=new BufferedReader(new InputStreamReader(in,StandardCharsets.UTF_8))){StringBuilder out=new StringBuilder();String line;while((line=r.readLine())!=null)out.append(line);String result=out.toString();rejectCloudflare(result);if(code<200||code>=300)throw new IOException("Request failed: HTTP "+code+" from "+url);return result;}
         }
     }
 }

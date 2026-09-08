@@ -181,10 +181,17 @@ async function resumeFromHistory(animeId) {
     b.last_watched > a.last_watched ||
     (b.last_watched === a.last_watched && episodeNum(b.episode) > episodeNum(a.episode)) ? b : a);
 
-  showToast('Loading ' + latest.anime_title + '...', 'info');
-  // Search AniDB by title to get the anime object with a playable ID
+  // Open the detail view instantly with the history card's data — the episode
+  // list shows a static skeleton while the playable AniDB entry is looked up
+  // in the background (no waiting on a slow connection).
+  openAnime({ id: null, title: latest.anime_title, thumbnail: latest.thumbnail, anilist: {} });
+  const token = openAnimeToken;
   const playable = await findPlayableAnime(latest.anime_title);
-  if (!playable) { showToast('Anime not found. Try searching manually.', 'error'); return; }
+  if (token !== openAnimeToken || !document.getElementById('view-detail').classList.contains('active')) return;
+  if (!playable) {
+    showEpisodeError('No AniDB entry could be matched for this title. Try searching for it manually.');
+    return;
+  }
 
   await openAnime(playable);
 

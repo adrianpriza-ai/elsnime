@@ -22,6 +22,9 @@ Frontend files live in `app/src/main/assets/`.
 - Match the existing dark, minimal design.
 - Preserve keyboard focus, hover states, and accessibility.
 - Keep layouts responsive across screen sizes and orientations.
+- For horizontal scroll layouts (home page, search results, trending), use the existing `animeRowHTML()` and `skeletonRowHTML()` helpers from `core.js`.
+- When adding new home page sections, update the `/api/home` route in `MainActivity.java` and the corresponding methods in `AniDbScraper.java`.
+- For follow-related UI changes, update both detail.html/detail.js and you.html/core.js/library.css.
 
 ### Backend
 
@@ -31,6 +34,9 @@ Java source lives in `app/src/main/java/com/elsnime/`.
 - Return failures as JSON with an `"error"` key instead of crashing.
 - Use the existing cache helpers and suitable TTL constants.
 - Avoid unnecessary Android permissions; prefer MediaStore and scoped storage.
+- When adding new API endpoints, follow the existing pattern in `MainActivity.java`'s `handle()` method.
+- For database changes related to the followed system, update the `HistoryDb` class and ensure proper migration in `onUpgrade()`.
+- When modifying the download engine, refer to the detailed pipeline description in HACKING.md.
 
 ## Reporting Issues
 

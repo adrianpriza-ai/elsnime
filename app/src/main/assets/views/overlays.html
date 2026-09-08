@@ -68,6 +68,50 @@
 			</div>
 		</div>
 
+		<!-- Mature content warning: shown when the user switches Settings >
+		     Content > Mature content to On. The toggle only sticks when
+		     confirmed; cancelling reverts it without saving. -->
+		<div
+			id="adult-warning-modal"
+			class="confirm-overlay"
+			hidden
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="adult-warning-title"
+			aria-describedby="adult-warning-message"
+			onclick="if(event.target===this)closeAdultWarning(false)"
+		>
+			<div class="confirm-sheet" role="document">
+				<div class="confirm-title" id="adult-warning-title">
+					Mature content warning
+				</div>
+				<div class="confirm-message" id="adult-warning-message">
+					This app may display mature content that isn't suitable for
+					kids. If a child were to see or be affected by it, I am not
+					responsible. Only turn it on if you accept that
+					responsibility.
+				</div>
+				<div class="confirm-actions">
+					<button
+						class="confirm-btn"
+						type="button"
+						id="adult-warning-ok"
+						onclick="closeAdultWarning(true)"
+					>
+						I understand
+					</button>
+					<button
+						class="soft-btn"
+						type="button"
+						id="adult-warning-cancel"
+						onclick="closeAdultWarning(false)"
+					>
+						Cancel
+					</button>
+				</div>
+			</div>
+		</div>
+
 		<!-- Episode picker: choose which episodes of a series to download -->
 		<div
 			id="ep-picker"

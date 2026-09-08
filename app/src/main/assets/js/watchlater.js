@@ -103,7 +103,6 @@ function removeSavedLater(animeId) {
 function openSavedLater(animeId) {
   const w = findSavedLater(animeId);
   if (!w || !w.anime) { showToast('This title is no longer available', 'error'); return; }
-  showToast('Loading ' + (w.title || 'anime') + '...', 'info');
   openAnime(w.anime);
 }
 

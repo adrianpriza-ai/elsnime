@@ -33,7 +33,9 @@ async function loadHomeRow(elId, title, items) {
   const el = document.getElementById(elId);
   if (!el) return;
   if (!Array.isArray(items) || !items.length) { el.innerHTML = ''; return; }
-  el.innerHTML = animeRowHTML(items, title);
+  // Discovery rows never show 18+ — even with Mature content enabled — so a
+  // child opening the app can't stumble onto it here.
+  el.innerHTML = animeRowHTML(filterDiscoveryItems(items), title);
 }
 
 // Fallback: fetch the section from its own endpoint when /api/home is missing.
@@ -44,7 +46,7 @@ async function loadHomeRowFallback(elId, title, endpoint) {
   const sep = endpoint.includes('?') ? '&' : '?';
   const items = await api.get(endpoint + sep + 'type=' + type).catch(() => null);
   if (!Array.isArray(items) || !items.length) { el.innerHTML = ''; return; }
-  el.innerHTML = animeRowHTML(items, title);
+  el.innerHTML = animeRowHTML(filterDiscoveryItems(items), title);
 }
 
 // Renders the Continue Watching row into the given element. Shared by Home and
@@ -107,10 +109,7 @@ async function findPlayableAnime(title) {
 
 function openCatalogCard(cardId) {
   const anime = S.catalogCards[cardId];
-  if (anime && anime.id) {
-    showToast('Loading ' + (anime.title || 'anime') + '...', 'info');
-    openAnime(anime);
-  }
+  if (anime && anime.id) openAnime(anime);
 }
 
 function normalizeTitle(value) {
@@ -170,10 +169,20 @@ let resolveCard = null;
 async function openByTitle(cardId) {
   const card = S.catalogCards[cardId];
   if (!card) { showToast('Could not open this title', 'error'); return; }
-  const label = card.title || card.anilist?.title?.english || card.anilist?.title?.romaji || 'anime';
-  showToast('Loading ' + label + '...', 'info');
-
   const al = card.anilist || {};
+  const label = card.title || al.title?.english || al.title?.romaji || 'anime';
+
+  // Open the detail view instantly with the card's AniList data — no waiting
+  // on AniDB. The episode list shows a static skeleton while the playable
+  // entry is resolved in the background below.
+  openAnime({ id: null, title: label, thumbnail: card.thumbnail, anilist: al });
+  const token = openAnimeToken;
+  // Drop the background resolution if the user opened something else or left
+  // the detail view while it was running.
+  const stillCurrent = () =>
+    token === openAnimeToken &&
+    document.getElementById('view-detail').classList.contains('active');
+
   const titles = [card.title, al.title?.english, al.title?.romaji, al.title?.native, ...(al.synonyms || [])]
     .filter(Boolean);
   const resolved = await api.post('/api/resolve', {
@@ -187,10 +196,12 @@ async function openByTitle(cardId) {
     const alternatives = Array.isArray(resolved.alternatives) ? resolved.alternatives : [];
     const strong = alternatives.filter(c => (c.match_score || 0) >= 700);
     if (resolved.best && strong.length <= 1) {
+      if (!stillCurrent()) return;
       openAnime({ ...resolved.best, anilist: resolved.best.anilist || al });
       return;
     }
     if (strong.length > 1 && strong[0].match_score - strong[1].match_score <= 250) {
+      if (!stillCurrent()) return;
       showResolvePicker(strong, card);
       return;
     }
@@ -199,21 +210,25 @@ async function openByTitle(cardId) {
   // Fallbacks: Jikan detail (card has a MAL id), then plain title search.
   if (card.jikan_id) {
     const entry = await api.get('/api/anime?id=' + encodeURIComponent(card.jikan_id) + '&type=' + (S.settings.sub_lang || 'sub')).catch(() => null);
-    if (entry && entry.id) { openAnime({ ...entry, anilist: entry.anilist || al }); return; }
+    if (entry && entry.id) {
+      if (!stillCurrent()) return;
+      openAnime({ ...entry, anilist: entry.anilist || al });
+      return;
+    }
   }
   const playable = await findPlayableAnime(label);
   if (playable) {
+    if (!stillCurrent()) return;
     openAnime({ ...playable, anilist: playable.anilist || al });
     return;
   }
-  // Fallback: show the detail view with whatever AniList data we have,
-  // even if there is no AniDB entry (e.g. upcoming or niche titles).
-  openAnime({
-    id: null,
-    title: al.title?.english || al.title?.romaji || label,
-    thumbnail: al.coverImage?.large || al.coverImage?.extraLarge || card.thumbnail || '',
-    anilist: al
-  });
+  // No AniDB entry came back from any lookup — the title resolved to null.
+  // Keep the AniList-only detail view but surface it as an error instead of
+  // leaving the skeleton or a bare "unavailable" line.
+  if (stillCurrent()) {
+    showEpisodeError('No AniDB entry could be matched for this title. It may not be available there yet — try searching for it manually.');
+    showToast('Could not find this title on AniDB', 'error');
+  }
 }
 
 function showResolvePicker(candidates, card) {
@@ -251,17 +266,24 @@ function closeResolvePicker() {
   document.getElementById('resolve-modal').hidden = true;
   resolveCandidates = [];
   resolveCard = null;
+  // Cancel without picking: the detail view was opened with an episode
+  // skeleton before resolution — swap it for the real empty state instead of
+  // leaving it spinning. (pickResolvedAnime re-opens right after, so the
+  // swap is never painted there.)
+  if (episodesPending) stopEpisodeSkeleton();
 }
 
-// Popular row shown on the Search tab (horizontal scroll)
+// Popular feed shown on the Search tab (vertical list, top-to-bottom)
 async function loadTrending() {
   const el = document.getElementById('trending-section');
   if (!el) return;
-  el.innerHTML = '<div class="section-title searching"><span class="searching-dot"></span>Loading…</div>' + skeletonRowHTML(8);
+  el.innerHTML = '<div class="section-title searching"><span class="searching-dot"></span>Loading…</div>' + skeletonListHTML(8);
   const trending = await loadPopular();
   if (!Array.isArray(trending) || !trending.length) {
     el.innerHTML = '';
     return;
   }
-  el.innerHTML = animeRowHTML(trending, 'Popular This Month');
+  // Same child-safe rule as the Home rows: the Search tab's default feed is
+  // discovery content, so it never shows 18+ either.
+  el.innerHTML = animeListHTML(filterDiscoveryItems(trending), 'Popular This Month');
 }

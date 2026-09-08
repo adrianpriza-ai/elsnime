@@ -70,6 +70,11 @@ window.handleAppBack = function() {
     closeConfirm(false);
     return true;
   }
+  const adultWarning = document.getElementById('adult-warning-modal');
+  if (adultWarning && !adultWarning.hidden) {
+    closeAdultWarning(false);
+    return true;
+  }
   const resolveModal = document.getElementById('resolve-modal');
   if (resolveModal && !resolveModal.hidden) {
     closeResolvePicker();

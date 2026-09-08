@@ -69,6 +69,40 @@ function closeConfirm(result) {
 	confirmPrevFocus = null;
 }
 
+//  Mature content consent  
+// Enabling Settings > Content > Mature content is gated behind an explicit
+// acknowledgement popup: the user confirms they take responsibility (the
+// disclaimer text lives in overlays.html) or the toggle reverts without
+// saving. Same in-app modal mechanics as showConfirm/closeConfirm.
+let adultWarningResolve = null;
+let adultWarningPrevFocus = null;
+
+function showAdultWarning() {
+	const modal = document.getElementById('adult-warning-modal');
+	if (!modal) return Promise.resolve(false);
+	adultWarningPrevFocus = document.activeElement;
+	modal.hidden = false;
+	// Focus the least destructive choice so Enter never trips the consent.
+	document.getElementById('adult-warning-cancel').focus();
+	return new Promise(resolve => { adultWarningResolve = resolve; });
+}
+
+function closeAdultWarning(result) {
+	const modal = document.getElementById('adult-warning-modal');
+	if (!modal || modal.hidden) return;
+	modal.hidden = true;
+	if (adultWarningResolve) {
+		const settle = adultWarningResolve;
+		adultWarningResolve = null;
+		settle(!!result);
+	}
+	// Return focus to the toggle that opened the dialog (a11y).
+	if (adultWarningPrevFocus && typeof adultWarningPrevFocus.focus === 'function') {
+		adultWarningPrevFocus.focus();
+	}
+	adultWarningPrevFocus = null;
+}
+
 //  State  
 const S = {
   anime:       null,
@@ -181,7 +215,6 @@ async function renderFollowing() {
 }
 
 async function openFollowedAnime(animeId) {
-  showToast('Loading…', 'info');
   // Try to get the full anime details through search
   const follows = await api.get('/api/follows').catch(() => []);
   const f = Array.isArray(follows) ? follows.find(x => String(x.anime_id) === String(animeId)) : null;
@@ -192,12 +225,18 @@ async function openFollowedAnime(animeId) {
       return;
     } catch (_) {}
   }
-  // Fallback: search by title
-  const results = await api.get('/api/search?q=' + encodeURIComponent(f ? f.anime_title : animeId) + '&type=' + (S.settings.sub_lang || 'sub')).catch(() => []);
+  // No cached details: open instantly with what we have (static skeleton) and
+  // search for a playable entry in the background.
+  const title = f ? f.anime_title : animeId;
+  openAnime({ id: null, title, thumbnail: f ? f.thumbnail : '', anilist: {} });
+  const token = openAnimeToken;
+  const results = await api.get('/api/search?q=' + encodeURIComponent(title) + '&type=' + (S.settings.sub_lang || 'sub')).catch(() => []);
+  if (token !== openAnimeToken || !document.getElementById('view-detail').classList.contains('active')) return;
   if (Array.isArray(results) && results.length) {
     openAnime(results[0]);
   } else {
-    showToast('Could not open this title', 'error');
+    showEpisodeError('No AniDB entry could be matched for this title. Try searching for it manually.');
+    showToast('Could not find this title on AniDB', 'error');
   }
 }
 
@@ -367,10 +406,28 @@ function animeRowHTML(items, title, highlight) {
     visible.map(r => animeCardHTML(r, highlight)).join('') + '</div>';
 }
 
+// Vertical list of anime cards, stacked top-to-bottom — used for Search
+// results (and the Search tab's Popular feed) so results read downward
+// instead of sideways. Cards keep the same markup; CSS turns each one into
+// a compact row with the poster on the left and info on the right.
+function animeListHTML(items, title, highlight) {
+  const visible = filterAdultItems(items);
+  if (!visible.length) return '';
+  return `<div class="section-head"><div class="section-title">${title}</div></div>` +
+    '<div class="anime-list">' +
+    visible.map(r => animeCardHTML(r, highlight)).join('') + '</div>';
+}
+
 // Skeleton placeholder shaped like a horizontal row (used while fetching).
 function skeletonRowHTML(count) {
   return '<div class="anime-row">' +
     Array(count).fill('<div class="skeleton" style="min-width:120px;aspect-ratio:2/3;border-radius:var(--radius-lg)"></div>').join('') + '</div>';
+}
+
+// Skeleton placeholder shaped like the vertical list (used while fetching).
+function skeletonListHTML(count) {
+  return '<div class="anime-list">' +
+    Array(count).fill('<div class="skeleton skeleton-list-item"></div>').join('') + '</div>';
 }
 
 // "Mature content" gate: off by default (Settings > Content). When off,
@@ -384,6 +441,16 @@ function showAdultContent() {
 function filterAdultItems(items) {
   const list = items || [];
   return showAdultContent() ? list : list.filter(r => !(r.anilist && r.anilist.isAdult));
+}
+
+// Discovery feeds (Home rows + the Search tab's default Popular feed) NEVER
+// show mature titles, even with "Mature content" enabled: a child opening the
+// app lands on these, so they must stay clean regardless of the setting. The
+// toggle only widens explicit search/genre browsing. Watch history is
+// deliberately exempt — it reflects what the user already chose to watch.
+function filterDiscoveryItems(items) {
+  const list = items || [];
+  return list.filter(r => !(r.anilist && r.anilist.isAdult));
 }
 
 // Best available persistent ID for follow/save-for-later. AniDB IDs are
@@ -407,6 +474,7 @@ function skeletonGridHTML(count) {
 //  Settings 
 const DEFAULT_SETTINGS = {
   theme: 'auto',
+  source: 'anidb',
   player: 'web',
   sub_lang: 'sub',
   aniskip: 'on',
@@ -442,8 +510,15 @@ async function loadSettings() {
   } catch(_) {
     S.settings = { ...DEFAULT_SETTINGS };
   }
+  // SQLite stores numeric-looking values as JSON numbers when settings are
+  // loaded again. The pill buttons use string data-value attributes, so keep
+  // quality values string-normalized for both display and comparisons.
+  ['quality', 'stream_quality', 'download_quality'].forEach(key => {
+    if (S.settings[key] != null) S.settings[key] = String(S.settings[key]);
+  });
 
   setPillValue('pill-theme',  S.settings.theme    || DEFAULT_SETTINGS.theme);
+  setPillValue('pill-source', S.settings.source  || DEFAULT_SETTINGS.source);
   setPillValue('pill-player', S.settings.player   || DEFAULT_SETTINGS.player);
   setPillValue('pill-lang',   S.settings.sub_lang || DEFAULT_SETTINGS.sub_lang);
   setPillValue('pill-aniskip', S.settings.aniskip || DEFAULT_SETTINGS.aniskip);
@@ -518,18 +593,30 @@ function initPillSliders() {
   });
 }
 
-function selectPillOption(btn) {
+async function selectPillOption(btn) {
   const slider = btn.closest('.pill-slider');
   if (!slider) return;
   const setting = slider.dataset.setting;
+  const value = btn.dataset.value;
   const buttons = slider.querySelectorAll('.pill-option');
   const highlight = slider.querySelector('.pill-highlight');
+
+  // Enabling mature content requires an explicit consent acknowledgement;
+  // cancelling reverts the pill and skips saving.
+  if (setting === 'show_adult' && value === 'on') {
+    const ok = await showAdultWarning();
+    if (!ok) {
+      const prev = (S.settings.show_adult || DEFAULT_SETTINGS.show_adult) === 'on' ? 'on' : 'off';
+      setPillValue('pill-adult', prev);
+      return;
+    }
+  }
 
   buttons.forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   movePillHighlight(highlight, btn);
-  if (setting === 'theme') applyTheme(btn.dataset.value);
-  saveSetting(setting, btn.dataset.value);
+  if (setting === 'theme') applyTheme(value);
+  saveSetting(setting, value);
   syncQualityRows(); // show/hide Default vs Stream/Download quality rows
 }
 
@@ -544,8 +631,9 @@ function setPillValue(sliderId, value) {
   const buttons = slider.querySelectorAll('.pill-option');
   const highlight = slider.querySelector('.pill-highlight');
   buttons.forEach(b => {
-    b.classList.toggle('active', b.dataset.value === value);
-    if (b.dataset.value === value) movePillHighlight(highlight, b);
+    const selected = String(b.dataset.value) === String(value);
+    b.classList.toggle('active', selected);
+    if (selected) movePillHighlight(highlight, b);
   });
 }
 
@@ -587,6 +675,7 @@ async function resetSettings() {
   } catch(_) {}
 
   setPillValue('pill-theme',  DEFAULT_SETTINGS.theme);
+  setPillValue('pill-source', DEFAULT_SETTINGS.source);
   setPillValue('pill-player', DEFAULT_SETTINGS.player);
   setPillValue('pill-lang',   DEFAULT_SETTINGS.sub_lang);
   setPillValue('pill-aniskip', DEFAULT_SETTINGS.aniskip);

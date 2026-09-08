@@ -7,29 +7,58 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same branch/PR.
+concurrency:
+  group: debug-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-debug:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v6 # verified latest v6.3.0 via https://github.com/gradle/actions/releases
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6 # verified latest v6.3.0 via https://github.com/gradle/actions/releases
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Show APK info
+        if: always()
+        run: |
+          echo "### APKs" >> "$GITHUB_STEP_SUMMARY"
+          ls -lh app/build/outputs/apk/debug/*.apk 2>/dev/null | tee -a "$GITHUB_STEP_SUMMARY" || echo "No APKs found" >> "$GITHUB_STEP_SUMMARY"
+          du -sh app/build 2>/dev/null | tee -a "$GITHUB_STEP_SUMMARY" || true
 
       - name: Upload Debug Artifact
-        uses: actions/upload-artifact@v5
+        if: success()
+        uses: actions/upload-artifact@v7
         with:
-          name: Elsnime-debug-apk
+          name: Elsnime-debug-${{ github.sha }}
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6

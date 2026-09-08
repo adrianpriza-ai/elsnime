@@ -176,3 +176,49 @@
 	width: 130px;
 	scroll-snap-align: start;
 }
+
+/*  Vertical list — Search results stack top-to-bottom, one result per row,
+    instead of a sideways-scrolling row. Each card is laid out as a compact
+    row: poster thumb on the left, title/score on the right. */
+.anime-list {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding-bottom: 8px;
+}
+
+.anime-list .anime-card {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	border-radius: var(--radius-md);
+}
+
+.anime-list .anime-card img {
+	width: 72px;
+	height: 108px;
+	flex-shrink: 0;
+}
+
+.anime-list .card-info {
+	flex: 1;
+	min-width: 0;
+	padding: 10px 14px;
+}
+
+.anime-list .card-title {
+	font-size: 14px;
+}
+
+.anime-list .card-score {
+	font-size: 12px;
+}
+
+.anime-list .anime-card mark {
+	font-size: inherit;
+}
+
+.skeleton-list-item {
+	height: 108px;
+	border-radius: var(--radius-md);
+}

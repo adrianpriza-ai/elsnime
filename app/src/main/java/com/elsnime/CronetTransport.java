@@ -6,6 +6,7 @@ import org.chromium.net.*;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -36,7 +37,7 @@ final class CronetTransport implements AniDbScraper.HttpTransport {
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     private CronetTransport(Context context) {
-        engine = new ExperimentalCronetEngine.Builder(context)
+        engine = new CronetEngine.Builder(context)
                 .setUserAgent(UA)
                 .enableHttp2(true)
                 .enableQuic(false)
@@ -46,6 +47,11 @@ final class CronetTransport implements AniDbScraper.HttpTransport {
 
     @Override
     public String request(String method, String url, String body, String referer, String origin) throws IOException {
+        return request(method, url, body, referer, origin, null);
+    }
+
+    @Override
+    public String request(String method, String url, String body, String referer, String origin, Map<String, String> extra) throws IOException {
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<String> result = new AtomicReference<>();
         final AtomicReference<IOException> error = new AtomicReference<>();
@@ -77,7 +83,9 @@ final class CronetTransport implements AniDbScraper.HttpTransport {
                     // two transports behaviorally identical.
                     String res = new String(sink.toByteArray(), StandardCharsets.UTF_8).replace("\r", "").replace("\n", "");
                     AniDbScraper.rejectCloudflare(res);
-                    if (i.getHttpStatusCode() >= 400) throw new IOException("HTTP " + i.getHttpStatusCode());
+                    // Mirror the default transport's ani-cli v5.0.4 status check:
+                    // any non-2xx response fails unless the body is a Cloudflare challenge.
+                    if (i.getHttpStatusCode() < 200 || i.getHttpStatusCode() >= 300) throw new IOException("Request failed: HTTP " + i.getHttpStatusCode() + " from " + i.getUrl());
                     result.set(res);
                 } catch (IOException e) { error.set(e); }
                 latch.countDown();
@@ -101,6 +109,7 @@ final class CronetTransport implements AniDbScraper.HttpTransport {
         .addHeader("Accept-Language", "en-US,en;q=0.9")
         .addHeader("Referer", referer);
         if (origin != null) b.addHeader("Origin", origin);
+        if (extra != null) for (Map.Entry<String, String> e : extra.entrySet()) b.addHeader(e.getKey(), e.getValue());
         if (body != null) {
             b.addHeader("Content-Type", "application/json");
             b.setUploadDataProvider(new ByteBufferUploadProvider(body.getBytes(StandardCharsets.UTF_8)), executor);
