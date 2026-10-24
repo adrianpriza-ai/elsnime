@@ -248,8 +248,8 @@ public final class MainActivity extends Activity {
     }
 
     static final class Backend {
-        final ExecutorService executor=Executors.newCachedThreadPool(); final AniDbScraper scraper=new AniDbScraper(); final AnikotoScraper anikoto=new AnikotoScraper(); final HistoryDb db;
-        private volatile String source="anidb";
+        final ExecutorService executor=Executors.newCachedThreadPool(); final AniDbScraper scraper=new AniDbScraper(); final AnikotoScraper anikoto=new AnikotoScraper(); final HianimeScraper hianime=new HianimeScraper(); final HistoryDb db;
+        private volatile String source="hianime";
         // The Downloader is process-wide (static): it survives an activity
         // destroy mid-download (e.g. swipe-away + reopen), and DownloadService
         // keeps referencing the same instance to mirror progress in the
@@ -267,7 +267,7 @@ public final class MainActivity extends Activity {
         private final java.util.concurrent.ScheduledExecutorService progressTimer=java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
         private volatile boolean progressFlushScheduled=false;
         private final android.content.Context appContext;
-        Backend(Context c){appContext=c.getApplicationContext();db=new HistoryDb(appContext);try{source=normalizeSource(db.settings().optString("source","anidb"));}catch(Exception ignored){}AniDbScraper.CacheStore store=new AniDbScraper.CacheStore(){
+        Backend(Context c){appContext=c.getApplicationContext();db=new HistoryDb(appContext);try{source=normalizeSource(db.settings().optString("source","hianime"));}catch(Exception ignored){}AniDbScraper.CacheStore store=new AniDbScraper.CacheStore(){
             public String get(String key){return db.cacheGet(key);}
             public void put(String key,String value,long ttl){db.cachePut(key,value,ttl);}
             public void clear(){db.cacheClear();}
@@ -276,10 +276,10 @@ public final class MainActivity extends Activity {
         // The AnikotoScraper is the fail-over provider: it shares the same
         // SQLite cache and Cronet transport so both present an identical
         // fingerprint and stay warm/cold together.
-        scraper.setCache(store);anikoto.setCache(store);
-        AniDbScraper.HttpTransport http=CronetTransport.create(appContext);scraper.setTransport(http);anikoto.setTransport(http);
+        scraper.setCache(store);anikoto.setCache(store);hianime.setCache(store);
+        AniDbScraper.HttpTransport http=CronetTransport.create(appContext);scraper.setTransport(http);anikoto.setTransport(http);hianime.setTransport(http);
         // Downloader pushes raw JSON events; AndroidApi forwards them to the page.
-        if(sharedDownloader==null)sharedDownloader=new Downloader(appContext,scraper,anikoto,ev->{java.util.function.Consumer<JSONObject> l=downloadListener;if(l!=null)l.accept(ev);});
+        if(sharedDownloader==null)sharedDownloader=new Downloader(appContext,scraper,anikoto,hianime,ev->{java.util.function.Consumer<JSONObject> l=downloadListener;if(l!=null)l.accept(ev);});
         downloader=sharedDownloader;
         downloader.setSource(source);
         DownloadService.attach(downloader);
@@ -482,8 +482,9 @@ public final class MainActivity extends Activity {
         }
         void refreshCache(String prefixes){
             if(prefixes==null||prefixes.trim().isEmpty())return;
-            if("all".equals(prefixes.trim())){scraper.clearCache();anikoto.clearCache();return;}
+            if("all".equals(prefixes.trim())){scraper.clearCache();anikoto.clearCache();hianime.clearCache();return;}
             for(String p:prefixes.split(",")){p=p.trim();if(!p.isEmpty())scraper.clearCachePrefix(p);}
+            for(String p:prefixes.split(",")){p=p.trim();if(p.equals("anidb-search|"))hianime.clearCachePrefix("hianime-search|");else if(p.equals("anidb-episodes|"))hianime.clearCachePrefix("hianime-episodes|");}
             // Drop the matching Anikoto entries too (anidb search keys are the
             // prefix the pull-to-refresh knows; the fallback cache lives under
             // ak-* and would otherwise pin stale results for its TTL).
@@ -495,9 +496,15 @@ public final class MainActivity extends Activity {
         // Anidb errors are never cached, so a healthy anidb.app stays the
         // primary source and the fallback only shows its results when the
         // primary came up empty.
-        private static String normalizeSource(String value){return "anikoto".equalsIgnoreCase(value)?"anikoto":"anidb";}
+        private static String normalizeSource(String value){
+            if("anidb".equalsIgnoreCase(value))return "anidb";
+            if("anikoto".equalsIgnoreCase(value))return "anikoto";
+            return "hianime";
+        }
         private boolean usesAnikoto(){return "anikoto".equals(source);}
+        private boolean usesHianime(){return "hianime".equals(source);}
         JSONArray searchResults(String query,String type)throws Exception{
+            if(usesHianime())return hianime.search(query,type);
             if(usesAnikoto())return anikoto.search(query,type);
             try{
                 JSONArray primary=scraper.search(query,type);
@@ -514,11 +521,13 @@ public final class MainActivity extends Activity {
         // (anidb slug ids, incl. history/follows from before the fallback)
         // stays on AniDbScraper.
         JSONArray episodesResults(String id,String type)throws Exception{
+            if(usesHianime())return hianime.episodes(id,type);
             if(usesAnikoto())return anikoto.episodes(id,type);
             if(AnikotoScraper.owns(id)||AnikotoScraper.ownsNumeric(id))return anikoto.episodes(id,type);
             return scraper.episodes(id,type);
         }
         JSONObject streamResult(String id,String episode,String type)throws Exception{
+            if(usesHianime())return hianime.stream(id,episode,type);
             if(usesAnikoto())return anikoto.stream(id,episode,type);
             if(AnikotoScraper.owns(id)||AnikotoScraper.ownsNumeric(id))return anikoto.stream(id,episode,type);
             return scraper.stream(id,episode,type);
@@ -676,7 +685,7 @@ public final class MainActivity extends Activity {
                 d.setTransactionSuccessful();
             }finally{d.endTransaction();}
         }
-        JSONObject settings() throws Exception{JSONObject o=new JSONObject().put("hw_accel",false).put("source","anidb").put("sub_lang","sub").put("player","web").put("theme","auto").put("aniskip","on").put("performance_mode","auto").put("accent_h",239).put("quality","480").put("separate_quality","off").put("stream_quality","480").put("download_quality","480");try(Cursor c=getReadableDatabase().query("settings",new String[]{"key","value"},null,null,null,null,null)){while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);try{o.put(k,new JSONTokener(v).nextValue());}catch(Exception ignored){}}}return o;}
+        JSONObject settings() throws Exception{JSONObject o=new JSONObject().put("hw_accel",false).put("source","hianime").put("sub_lang","sub").put("player","web").put("theme","auto").put("aniskip","on").put("performance_mode","auto").put("accent_h",239).put("quality","480").put("separate_quality","off").put("stream_quality","480").put("download_quality","480");try(Cursor c=getReadableDatabase().query("settings",new String[]{"key","value"},null,null,null,null,null)){while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);try{o.put(k,new JSONTokener(v).nextValue());}catch(Exception ignored){}}}return o;}
         void settings(JSONObject x){
             SQLiteDatabase d=getWritableDatabase();
             JSONArray names=x.names();

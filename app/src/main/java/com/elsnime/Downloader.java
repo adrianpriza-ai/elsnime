@@ -85,17 +85,19 @@ final class Downloader {
     // Fail-over stream provider (anikoto ids from the fallback search resolve
     // here instead of anidb.app, which cannot decode them).
     private final AnikotoScraper anikoto;
-    private volatile String source = "anidb";
+    private final HianimeScraper hianime;
+    private volatile String source = "hianime";
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Map<String, Task> tasks = new ConcurrentHashMap<>(); // "animeId|episode" -> Task
     private final Map<String, JSONObject> lastEvent = new ConcurrentHashMap<>(); // "animeId|episode" -> last emitted event
     private final SharedPreferences prefs;
 
-    Downloader(Context c, AniDbScraper s, AnikotoScraper a, Listener l) {
+    Downloader(Context c, AniDbScraper s, AnikotoScraper a, HianimeScraper h, Listener l) {
         ctx = c.getApplicationContext();
         scraper = s;
         anikoto = a;
+        hianime = h;
         listeners.add(l);
         prefs = ctx.getSharedPreferences("downloads", Context.MODE_PRIVATE);
         // Downloads interrupted by a process death (force-stop, crash, kill)
@@ -108,7 +110,7 @@ final class Downloader {
     }
 
     void setSource(String value) {
-        source = "anikoto".equalsIgnoreCase(value) ? "anikoto" : "anidb";
+        source = "anidb".equalsIgnoreCase(value) ? "anidb" : ("anikoto".equalsIgnoreCase(value) ? "anikoto" : "hianime");
     }
 
     /** Extra event listeners (e.g. DownloadService's progress notification). */
@@ -303,9 +305,10 @@ final class Downloader {
 
             // Anikoto fallback ids are served by the AnikotoScraper (MegaPlay
             // sources); everything else goes through anidb.app as before.
-            JSONObject stream = ("anikoto".equals(source) || AnikotoScraper.owns(t.animeId) || AnikotoScraper.ownsNumeric(t.animeId))
-                ? anikoto.stream(t.animeId, t.episode, t.type)
-                : scraper.stream(t.animeId, t.episode, t.type);
+            JSONObject stream;
+            if ("hianime".equals(source)) stream = hianime.stream(t.animeId, t.episode, t.type);
+            else if ("anikoto".equals(source) || AnikotoScraper.owns(t.animeId) || AnikotoScraper.ownsNumeric(t.animeId)) stream = anikoto.stream(t.animeId, t.episode, t.type);
+            else stream = scraper.stream(t.animeId, t.episode, t.type);
             if (t.cancelled) { emit(t, "cancelled", null, 0, 0, 0, ""); return; }
             if (stream.has("error")) { emit(t, "error", null, 0, 0, 0, stream.optString("error")); return; }
 

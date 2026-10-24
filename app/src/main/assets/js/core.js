@@ -474,7 +474,7 @@ function skeletonGridHTML(count) {
 //  Settings 
 const DEFAULT_SETTINGS = {
   theme: 'auto',
-  source: 'anidb',
+  source: 'hianime',
   player: 'web',
   sub_lang: 'sub',
   aniskip: 'on',
