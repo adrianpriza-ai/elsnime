@@ -106,8 +106,8 @@ final class CronetTransport implements AniDbScraper.HttpTransport {
         .setHttpMethod(method)
         .addHeader("User-Agent", UA)
         .addHeader("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
-        .addHeader("Accept-Language", "en-US,en;q=0.9")
-        .addHeader("Referer", referer);
+        .addHeader("Accept-Language", "en-US,en;q=0.9");
+        if (referer != null && !referer.isEmpty()) b.addHeader("Referer", referer);
         if (origin != null) b.addHeader("Origin", origin);
         if (extra != null) for (Map.Entry<String, String> e : extra.entrySet()) b.addHeader(e.getKey(), e.getValue());
         if (body != null) {

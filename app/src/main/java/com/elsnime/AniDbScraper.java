@@ -494,7 +494,7 @@ public final class AniDbScraper {
             c.setRequestProperty("User-Agent",UA);
             c.setRequestProperty("Accept","text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8");
             c.setRequestProperty("Accept-Language","en-US,en;q=0.9");
-            c.setRequestProperty("Referer",referer);
+            if(referer!=null&&!referer.isEmpty())c.setRequestProperty("Referer",referer);
             if(origin!=null)c.setRequestProperty("Origin",origin);
             if(extra!=null)for(Map.Entry<String,String> e:extra.entrySet())c.setRequestProperty(e.getKey(),e.getValue());
             if(body!=null){c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");try(OutputStream o=c.getOutputStream()){o.write(body.getBytes(StandardCharsets.UTF_8));}}

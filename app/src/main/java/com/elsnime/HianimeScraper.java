@@ -10,7 +10,7 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Java port of the hianime provider used by ani-cli.6. */
+/** Java port of the hianime provider used by ani-cli.7. */
 public final class HianimeScraper {
     private static final String BASE = "https://hianime.at";
     private static final String EMBED_KEY = "otaku-embed-v1";
@@ -20,6 +20,9 @@ public final class HianimeScraper {
     private static final Pattern SERVER_ITEM = Pattern.compile("data-type=\\\"([^\\\"]+)\\\".*?data-server-name=\\\"ZokoAnime\\\".*?data-hash=\\\"([^\\\"]+)\\\"", Pattern.CASE_INSENSITIVE);
     private static final Pattern PAYLOAD = Pattern.compile("window\\.__P=\\\"([^\\\"]+)\\\"");
     private static final Pattern SOURCE = Pattern.compile("\\\"src\\\":\\\"([^\\\"]+\\.m3u8[^\\\"]*)\\\"");
+    private static final Pattern AUDIO_MEDIA = Pattern.compile("#EXT-X-MEDIA:TYPE=AUDIO,([^#\\r\\n]*)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern AUDIO_DEFAULT = Pattern.compile("(?:^|,)\\s*DEFAULT=YES(?:,|$)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern AUDIO_URI = Pattern.compile("(?:^|,)\\s*URI=\\\"([^\\\"]+)\\\"", Pattern.CASE_INSENSITIVE);
     private static final Pattern SUBTITLES = Pattern.compile("\\\"subtitles\\\":\\[([^\\]]*)\\]");
     private static final Pattern SUBTITLE_OBJECT = Pattern.compile("\\{([^{}]*)\\}");
     private static final Pattern SUBTITLE_SOURCE = Pattern.compile("\\\"src\\\":\\\"([^\\\"]+)\\\"");
@@ -37,7 +40,7 @@ public final class HianimeScraper {
         if (q.isEmpty()) throw new IOException("Empty search query");
         return cachedArray("hianime-search|" + q.toLowerCase(Locale.US), TTL_DAY, () -> {
             String page = request("GET", BASE + "/search?keyword=" + URLEncoder.encode(q, "UTF-8"), BASE + "/");
-            page = page.replace("\\\\\"", "\"");
+            page = page.replace("\\\"", "\"");
             JSONArray out = new JSONArray();
             Set<String> seen = new HashSet<>();
             int sidebar = page.indexOf("id=\"main-sidebar\"");
@@ -55,8 +58,8 @@ public final class HianimeScraper {
     public JSONArray episodes(String animeId, String ignoredMode) throws Exception {
         return cachedArray("hianime-episodes|" + animeId, TTL_HOUR, () -> {
             String slug = animeId == null ? "" : animeId;
-            String page = request("GET", BASE + "/api/theme/episode/list/" + slug.replaceFirst("^.*-", ""), BASE + "/");
-            page = page.replace("\\\\", "").replace("ep-item", "\nep-item");
+            String page = request("GET", BASE + "/api/theme/episode/list/" + slug.replaceFirst("^.*-", ""), null);
+            page = page.replace("\\", "").replace("ep-item", "\nep-item");
             Matcher m = EPISODE_ITEM.matcher(page);
             List<String> values = new ArrayList<>();
             while (m.find()) {
@@ -72,8 +75,8 @@ public final class HianimeScraper {
 
     public JSONObject stream(String animeId, String episode, String mode) throws Exception {
         String slug = animeId == null ? "" : animeId;
-        String page = request("GET", BASE + "/api/theme/episode/list/" + slug.replaceFirst("^.*-", ""), BASE + "/");
-        page = page.replace("\\\\", "").replace("ep-item", "\nep-item");
+        String page = request("GET", BASE + "/api/theme/episode/list/" + slug.replaceFirst("^.*-", ""), null);
+        page = page.replace("\\", "").replace("ep-item", "\nep-item");
         Matcher ep = EPISODE_ITEM.matcher(page);
         String episodeId = "";
         while (ep.find()) {
@@ -81,8 +84,8 @@ public final class HianimeScraper {
         }
         if (episodeId.isEmpty()) return error("Episode not found");
 
-        String servers = request("GET", BASE + "/api/theme/episode/servers?episodeId=" + episodeId, BASE + "/");
-        Matcher server = SERVER_ITEM.matcher(servers.replace("\\\\\"", "\""));
+        String servers = request("GET", BASE + "/api/theme/episode/servers?episodeId=" + episodeId, null);
+        Matcher server = SERVER_ITEM.matcher(servers.replace("\\\"", "\""));
         String embed = "";
         while (server.find()) {
             if (mode == null || mode.equalsIgnoreCase(server.group(1))) {
@@ -92,7 +95,7 @@ public final class HianimeScraper {
         }
         if (embed.isEmpty()) return error("No " + mode + " source found");
         String referer = origin(embed);
-        String embedPage = request("GET", embed, referer);
+        String embedPage = request("GET", embed, null);
         Matcher payload = PAYLOAD.matcher(embedPage);
         if (!payload.find()) return error("Embed payload not found");
         String config = xor(Base64.decode(payload.group(1), Base64.DEFAULT));
@@ -104,6 +107,16 @@ public final class HianimeScraper {
         if (url.isEmpty()) return error("No video quality found");
         JSONObject out = new JSONObject().put("url", url).put("raw", url).put("master", master)
             .put("type", "hls").put("referer", referer);
+        out.put("proxy", LocalFileServer.get().registerHlsProxy(master, referer));
+        Matcher audio = AUDIO_MEDIA.matcher(manifest);
+        while (audio.find()) {
+            String attributes = audio.group(1);
+            Matcher uri = AUDIO_URI.matcher(attributes);
+            if (AUDIO_DEFAULT.matcher(attributes).find() && uri.find()) {
+                out.put("audio", absolute(master, uri.group(1)));
+                break;
+            }
+        }
         Matcher subtitles = SUBTITLES.matcher(config);
         if (subtitles.find()) {
             Matcher subtitleObject = SUBTITLE_OBJECT.matcher(subtitles.group(1));
@@ -119,23 +132,18 @@ public final class HianimeScraper {
     }
 
     private String bestVariant(String master, String manifest) {
-        String[] lines = manifest.split("\\r?\\n");
-        String best = ""; int bestHeight = -1;
-        for (int i = 0; i + 1 < lines.length; i++) {
-            if (!lines[i].startsWith("#EXT-X-STREAM-INF")) continue;
-            Matcher r = Pattern.compile("RESOLUTION=\\d+x(\\d+)").matcher(lines[i]);
-            int height = r.find() ? Integer.parseInt(r.group(1)) : 0;
-            String candidate = lines[i + 1].trim();
-            if (candidate.isEmpty() || candidate.startsWith("#")) continue;
-            if (height >= bestHeight) { bestHeight = height; best = absolute(master, candidate); }
-        }
-        return best.isEmpty() && !manifest.contains("#EXT-X-STREAM-INF") ? master : best;
+        String variant = AniDbScraper.pickVariant(master, manifest, 0);
+        if (!variant.isEmpty()) return variant;
+        // Cronet strips line breaks from text responses. The shared variant
+        // parser handles that format; if a valid HLS playlist has no parseable
+        // rendition metadata, let hls.js/mpv interpret the master directly.
+        return manifest.contains("#EXTM3U") ? master : "";
     }
 
     private String request(String method, String url, String referer) throws Exception {
         String body;
         try {
-            body = transport.request(method, url, null, referer, BASE);
+            body = transport.request(method, url, null, referer, null);
         } catch (IOException e) {
             String message = e.getMessage();
             String detail = message != null && message.matches(".*HTTP [1-5][0-9][0-9].*")

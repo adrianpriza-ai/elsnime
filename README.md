@@ -31,6 +31,7 @@ Elsnime is an Android anime streaming client with a vanilla HTML/CSS/JavaScript 
 ### Playback
 
 - **Inline HLS Player**: Plyr with hls.js for adaptive HLS playback, vendored inline so the player boots offline.
+- **Hianime HLS Relay**: Hianime playlists, variants, audio tracks, and segments are relayed through a loopback server that adds the CDN-required User-Agent and embed Referer. This lets both WebView playback and MPV work without relying on browser-set headers.
 - **Quality Switching**: Choose from available HLS renditions or let the player adapt to bandwidth; starting quality comes from Settings.
 - **Player UI**: No tap-to-pause; playback is driven entirely by the Plyr control bar (play, progress, quality & speed menus, fullscreen).
 - **Fullscreen**: Fills the screen inside the WebView, overlaying the control bar, hiding the system bars, and rotating to landscape; leaving restores everything.
@@ -78,9 +79,9 @@ Elsnime is an Android anime streaming client with a vanilla HTML/CSS/JavaScript 
 
 ### External Player Support
 
-- **MPV Integration**: Launch streams into the official **mpv-android** app (URL + title via `ACTION_VIEW` intent), with a Termux `mpv` CLI fallback on rooted setups.
+- **MPV Integration**: Launch streams into the official **mpv-android** app (URL + title via `ACTION_VIEW` intent), with a Termux `mpv` CLI fallback on rooted setups. Hianime streams open through the local HLS relay so MPV receives the CDN headers on every playlist and segment request.
 - **Downloaded Files in MPV**: The Open in MPV button also works while a download is playing — the file is handed to mpv with its container type (`video/mp4` or `video/mp2t`), no stream lookup involved.
-- **Header Injection**: The browser User-Agent and Referrer pass to mpv through its config-include file so CDN-gated streams load (set the `include=...` line once in mpv.conf).
+- **MPV Config Include**: Elsnime still writes the browser User-Agent and Referrer to `/storage/emulated/0/mpv/mpv.config.mp4` for direct streams and older setups. Hianime playback uses the local relay and does not require an MPV config include.
 
 ---
 

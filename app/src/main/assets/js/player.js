@@ -288,7 +288,8 @@ async function startWebPlayer(stream, ep) {
   // Read the saved position BEFORE the force=true reset below overwrites the
   // history row, so reopening an episode picks up where the user left off.
   const resumeAt = await savedResumePosition(ep);
-  loadStream(stream.url, stream.type || null, stream.master || null, stream.referer || null, resumeAt);
+  const playbackUrl = stream.proxy || stream.url;
+  loadStream(playbackUrl, stream.type || null, stream.proxy || stream.master || null, stream.referer || null, resumeAt);
   loadSkipTimes(ep); // AniSkip: fire-and-forget (no data → silent)
   // force=true: create the history row immediately instead of waiting for a flush
   saveProgress(ep, 0, 0, true);

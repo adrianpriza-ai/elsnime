@@ -377,10 +377,11 @@ public final class MainActivity extends Activity {
             JSONObject out=new JSONObject();
             try{
                 JSONObject stream=streamResult(animeId,episode,type);
-                String url=stream.optString("url");
+                String url=stream.optString("proxy",stream.optString("url"));
                 // The stream result carries the embed page the manifest was fetched
                 // from — mpv must present it (plus the browser UA) to load the CDN.
                 String streamReferer=stream.optString("referer",referer);
+                String audio=stream.has("proxy")?"":stream.optString("audio");
                 String title=((animeTitle==null||animeTitle.isEmpty())?"Anime":animeTitle)+" - Episode "+episode;
                 out.put("url",url).put("raw",stream.optString("raw",url)).put("type",stream.opt("type"));
                 if(url.isEmpty())return out.put("error","No stream available").toString();
@@ -390,8 +391,8 @@ public final class MainActivity extends Activity {
                 // ani-cli uses. The CLI binary path is kept as a fallback for
                 // rooted setups where exec works.
                 String pkg=mpvAppPackage();
-                if(pkg!=null)launchMpvApp(url,title,streamReferer,userAgent,pkg,null);
-                else if(mpvCliAvailable())launchMpv(url,title,streamReferer,userAgent);
+                if(pkg!=null)launchMpvApp(url,title,streamReferer,userAgent,audio,pkg,null);
+                else if(mpvCliAvailable())launchMpv(url,title,streamReferer,userAgent,audio);
                 else return out.put("error","MPV is not installed. Install mpv-android (is.xyz.mpv) from the Play Store or F-Droid.").toString();
                 return out.put("ok",true).put("app",pkg!=null).toString();
             }catch(Exception e){try{return out.put("error",e.getMessage()==null?"Failed to launch MPV":e.getMessage()).toString();}catch(Exception ignored){return "{\"error\":\"Failed to launch MPV\"}";}}
@@ -405,19 +406,22 @@ public final class MainActivity extends Activity {
             try{
                 if(url==null||url.isEmpty())return out.put("error","No file open").toString();
                 String pkg=mpvAppPackage();
-                if(pkg!=null)launchMpvApp(url,title,"","",pkg,(mime==null||mime.isEmpty())?"video/mp4":mime);
-                else if(mpvCliAvailable())launchMpv(url,title,"","");
+                if(pkg!=null)launchMpvApp(url,title,"","","",pkg,(mime==null||mime.isEmpty())?"video/mp4":mime);
+                else if(mpvCliAvailable())launchMpv(url,title,"","","");
                 else return out.put("error","MPV is not installed. Install mpv-android (is.xyz.mpv) from the Play Store or F-Droid.").toString();
                 return out.put("ok",true).put("app",pkg!=null).toString();
             }catch(Exception e){try{return out.put("error",e.getMessage()==null?"Failed to launch MPV":e.getMessage()).toString();}catch(Exception ignored){return "{\"error\":\"Failed to launch MPV\"}";}}
         }
-        private void launchMpv(String url,String title,String referer,String userAgent)throws Exception{
+        private void launchMpv(String url,String title,String referer,String userAgent,String audio)throws Exception{
             String binary=mpvCliPath();
             if(binary==null)throw new Exception("Could not launch MPV. Check if mpv is installed.");
             Process p;
             try{
-                p=new ProcessBuilder(binary,"--no-stdin","--tls-verify=no","--force-window=yes",
-                    "--force-media-title="+title,"--referrer="+referer,"--user-agent="+userAgent,url)
+                java.util.ArrayList<String> args=new java.util.ArrayList<>(java.util.Arrays.asList(binary,"--no-stdin","--tls-verify=no","--force-window=yes",
+                    "--force-media-title="+title,"--referrer="+referer,"--user-agent="+userAgent));
+                if(audio!=null&&!audio.isEmpty())args.add("--audio-file="+audio);
+                args.add(url);
+                p=new ProcessBuilder(args)
                     .redirectErrorStream(true).start();
             }
             catch(java.io.IOException e){throw new Exception("Could not launch MPV. Check if mpv is installed.");}
@@ -431,7 +435,7 @@ public final class MainActivity extends Activity {
             mpvProcesses.add(p);
             new Thread(()->{try{java.io.BufferedReader br=new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()));while(br.readLine()!=null){}}catch(Exception ignored){}try{p.waitFor();}catch(Exception ignored){}mpvProcesses.remove(p);},"mpv-pump").start();
         }
-        private void launchMpvApp(String url,String title,String referer,String userAgent,String pkg,String mime)throws Exception{
+        private void launchMpvApp(String url,String title,String referer,String userAgent,String audio,String pkg,String mime)throws Exception{
             // ani-cli's android_mpv: am start -a VIEW -d <url> -e title <title>.
             // mpv-android's intent extras are title/subs/position/decode_mode — no
             // referer or UA — so those are pushed through the config include below
@@ -447,7 +451,7 @@ public final class MainActivity extends Activity {
             i.putExtra("title",title);
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             if(i.resolveActivity(appContext.getPackageManager())==null)throw new Exception("MPV app could not open this stream.");
-            writeMpvFlags(referer,userAgent);
+            writeMpvFlags(referer,userAgent,audio);
             appContext.startActivity(i);
         }
         // Best-effort mirror of ani-cli's android_mpv: write the per-playback flags
@@ -459,7 +463,7 @@ public final class MainActivity extends Activity {
         // NOTE: unlike ani-cli (which clears the file on exit) this is overwritten
         // on every launch but never cleared — a stale referer/UA may linger for
         // manually-launched mpv sessions until the next Elsnime play.
-        private void writeMpvFlags(String referer,String userAgent){
+        private void writeMpvFlags(String referer,String userAgent,String audio){
             try{
                 java.io.File dir=new java.io.File("/storage/emulated/0/mpv");
                 if(!dir.exists()&&!dir.mkdirs())return;
@@ -469,6 +473,8 @@ public final class MainActivity extends Activity {
                 String ref=sanitizeConfigValue(referer);
                 if(!ua.isEmpty())sb.append("user-agent=").append(ua).append('\n');
                 if(!ref.isEmpty())sb.append("http-header-fields=Referer: ").append(ref).append('\n');
+                String audioFile=sanitizeConfigValue(audio);
+                if(!audioFile.isEmpty())sb.append("audio-file=").append(audioFile).append('\n');
                 java.io.File f=new java.io.File(dir,"mpv.config.mp4");
                 try(java.io.FileOutputStream os=new java.io.FileOutputStream(f)){
                     os.write(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
