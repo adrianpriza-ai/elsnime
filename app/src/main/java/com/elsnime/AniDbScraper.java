@@ -488,7 +488,10 @@ public final class AniDbScraper {
         }
         @Override
         public String request(String method,String url,String body,String referer,String origin,Map<String,String> extra)throws IOException{
-            HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
+            URL parsed=new URL(url);
+            if(!"http".equalsIgnoreCase(parsed.getProtocol())&&!"https".equalsIgnoreCase(parsed.getProtocol()))
+                throw new IOException("Unsupported protocol: "+parsed.getProtocol());
+            HttpURLConnection c=(HttpURLConnection)parsed.openConnection();
             c.setRequestMethod(method);
             c.setConnectTimeout(12000);c.setReadTimeout(15000);
             c.setRequestProperty("User-Agent",UA);

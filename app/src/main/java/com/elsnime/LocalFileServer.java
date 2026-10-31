@@ -203,7 +203,12 @@ final class LocalFileServer {
         }
         HttpURLConnection c = null;
         try {
-            c = (HttpURLConnection) new URL(target).openConnection();
+            URL parsed = new URL(target);
+            if (!"http".equalsIgnoreCase(parsed.getProtocol()) && !"https".equalsIgnoreCase(parsed.getProtocol())) {
+                proxyRespond(out, "400 Bad Request", "text/plain", "Unsupported protocol".getBytes(StandardCharsets.UTF_8), method);
+                return;
+            }
+            c = (HttpURLConnection) parsed.openConnection();
             c.setRequestMethod(method);
             c.setConnectTimeout(15000);
             c.setReadTimeout(30000);
@@ -216,7 +221,7 @@ final class LocalFileServer {
 
             int code = c.getResponseCode();
             InputStream upstream = code >= 400 ? c.getErrorStream() : c.getInputStream();
-            boolean playlist = new URL(target).getPath().toLowerCase(java.util.Locale.ROOT).endsWith(".m3u8")
+            boolean playlist = parsed.getPath().toLowerCase(java.util.Locale.ROOT).endsWith(".m3u8")
                 || (c.getContentType() != null && c.getContentType().toLowerCase(java.util.Locale.ROOT).contains("mpegurl"));
             if (upstream == null) {
                 proxyRespond(out, status(code), "text/plain", new byte[0], method);

@@ -1089,7 +1089,10 @@ final class Downloader {
     }
 
     private byte[] fetchBytes(String url, String referer) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        URL parsed = new URL(url);
+        if (!"http".equalsIgnoreCase(parsed.getProtocol()) && !"https".equalsIgnoreCase(parsed.getProtocol()))
+            throw new IOException("Unsupported protocol: " + parsed.getProtocol());
+        HttpURLConnection c = (HttpURLConnection) parsed.openConnection();
         c.setInstanceFollowRedirects(true);
         c.setConnectTimeout(15000);
         c.setReadTimeout(30000);

@@ -418,8 +418,8 @@ public final class MainActivity extends Activity {
             Process p;
             try{
                 java.util.ArrayList<String> args=new java.util.ArrayList<>(java.util.Arrays.asList(binary,"--no-stdin","--tls-verify=no","--force-window=yes",
-                    "--force-media-title="+title,"--referrer="+referer,"--user-agent="+userAgent));
-                if(audio!=null&&!audio.isEmpty())args.add("--audio-file="+audio);
+                    "--force-media-title="+sanitizeMpvArg(title),"--referrer="+sanitizeMpvArg(referer),"--user-agent="+sanitizeMpvArg(userAgent)));
+                if(audio!=null&&!audio.isEmpty())args.add("--audio-file="+sanitizeMpvArg(audio));
                 args.add(url);
                 p=new ProcessBuilder(args)
                     .redirectErrorStream(true).start();
@@ -485,6 +485,13 @@ public final class MainActivity extends Activity {
         // out of the option=value line (newlines, the list separator, comments).
         private static String sanitizeConfigValue(String s){
             return s==null?"":s.replace('\r',' ').replace('\n',' ').replace(';',' ').replace('#',' ').trim();
+        }
+        // Sanitize values passed as mpv CLI option arguments. Strip control
+        // characters and prevent option injection (e.g. "--" prefix that mpv
+        // interprets as a new option, or "=" that creates option=value pairs).
+        private static String sanitizeMpvArg(String s){
+            if(s==null||s.isEmpty())return s;
+            return s.replace('\r',' ').replace('\n',' ').replace('\0',' ').trim();
         }
         void refreshCache(String prefixes){
             if(prefixes==null||prefixes.trim().isEmpty())return;
